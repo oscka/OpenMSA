@@ -1,0 +1,27 @@
+---
+- name: 8.17.1.repo add neuvector
+  ansible.builtin.shell:
+    cmd: |
+      helm repo add neuvectorcharts https://neuvector.github.io/neuvector-helm/
+  ignore_errors: yes
+
+- name: 8.17.1. repo update 
+  ansible.builtin.shell:
+    cmd: |
+      helm repo update
+
+- name: 8.15.3. Install neuvector
+  ansible.builtin.shell:
+    cmd: |
+      helm upgrade -i neuvector neuvectorcharts/core \
+      --namespace neuvector cnstudio/core \
+      --create-namespace \
+      --set manager.ingress.enabled=true \
+      --set controller.pvc.enabled=true \
+      --set controller.pvc.capacity=10Gi \
+      --set manager.svc.type=ClusterIP \
+      --set registry={{ NEXUS_REGISTRY_URL }} \
+      --set tag=5.3.3 \
+      --set manager.ingress.host="neuvector.{{DOMAIN_NAME }}" \
+      --set k3s.enabled=true \
+      --set cve.updater.enabled=false

@@ -1,0 +1,28 @@
+controller:
+  installPlugins: false
+  installLatestPlugins: false
+  installLatestSpecifiedPlugins: false
+  initializeOnce: true
+  image:
+    repository: cnstudio-jenkins/cnstudio-jenkins
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  javaOpts: >-
+    -Djenkins.install.runSetupWizard=false
+  admin:
+     password: admin12341234
+
+  additionalConfig:
+    - name: JENKINS_UC
+      value: ""
+    - name: JENKINS_UC_EXPERIMENTAL
+      value: ""
+    - name: JENKINS_INCREMENTALS_REPO_MIRROR
+      value: ""
+ 
+persistence:
+  enabled: true
+  storageClass: "longhorn"
+  size: 8Gi
+

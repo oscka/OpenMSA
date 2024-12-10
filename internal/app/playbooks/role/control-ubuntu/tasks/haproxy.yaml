@@ -1,0 +1,35 @@
+- name: Debug Master Nodes
+  debug:
+    var: k8s_master_nodes
+  when: k8s_master_nodes is defined
+
+- name: Ensure HAProxy configuration directory exists
+  file:
+    path: "{{ haproxy_config_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Generate HAProxy configuration file
+  template:
+    src: ingress-haproxy.cfg.j2
+    dest: "{{ haproxy_config_dir }}/ingress-haproxy.cfg"
+    mode: '0644'
+  become: yes
+
+- name: Generate HAProxy configuration file
+  template:
+    src: haproxy.cfg.j2
+    dest: "{{ haproxy_config_dir }}/haproxy.cfg"
+    mode: '0644'
+  become: yes
+
+- name: Generate HAProxy configuration file
+  template:
+    src: istio-haproxy.cfg.j2
+    dest: "{{ haproxy_config_dir }}/istio-haproxy.cfg"
+    mode: '0644'
+  become: yes
+
+
+
+

@@ -1,0 +1,13 @@
+---
+- name: 8.3.1. Update Helm repositories
+  ansible.builtin.shell:
+    cmd: "/usr/local/bin/helm repo update"
+
+- name: 8.3.2. Install KubeCost
+  ansible.builtin.shell:
+    cmd: |
+      helm upgrade -i kubecost cnstudio/cost-analyzer \
+        --namespace kubecost \
+        --create-namespace \
+        --version={{ PROMETHEUS_VERSION }} \
+        --set kubecostToken="aGVsbUBrdWJlY29zdC5jb20=xm343yadf98"

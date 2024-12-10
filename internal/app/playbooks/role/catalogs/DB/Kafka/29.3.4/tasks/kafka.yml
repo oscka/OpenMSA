@@ -1,0 +1,19 @@
+---
+- name: 8.19.1.repo add kafka
+  ansible.builtin.shell:
+    cmd: |
+      helm repo add bitnami https://charts.bitnami.com/bitnami
+
+- name: 8.19.1. repo update kafka
+  ansible.builtin.shell:
+    cmd: |
+      helm repo update
+
+- name: 8.19.3. Install kafka
+  ansible.builtin.shell:
+    cmd: |
+      helm install kafka bitnami/kafka \
+      --namespace kafka \
+      --create-namespace \
+      --set nodeSelector.db=true \
+      --set controller.replicaCount=3

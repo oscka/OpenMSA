@@ -1,0 +1,19 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: grafana
+  namespace: monitoring  # 그라파나가 설치된 네임스페이스로 변경
+spec:
+  gateways:
+    - istio-system/istio-gateway
+  hosts:
+    - "grafana.{{DOMAIN_NAME}}"  # 그라파나에 접근할 도메인 이름
+  http:
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: prometheus-grafana  # 그라파나 서비스의 이름
+            port:
+              number: 80  # 그라파나 서비스의 포트

@@ -1,0 +1,19 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: rancher
+  namespace: cattle-system  # Rancher UI가 설치된 네임스페이스로 변경
+spec:
+  gateways:
+    - istio-system/istio-gateway
+  hosts:
+    - "rancher.{{DOMAIN_NAME}}"  # Rancher UI에 접근할 도메인 이름
+  http:
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: rancher  # Rancher UI 서비스의 이름
+            port:
+              number: 80  # Rancher UI 서비스의 포트

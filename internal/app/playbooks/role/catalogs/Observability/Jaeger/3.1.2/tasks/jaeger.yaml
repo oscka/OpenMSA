@@ -1,0 +1,26 @@
+- name: 8.17.1.repo add jaeger
+  ansible.builtin.shell:
+    cmd: |
+      helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
+  ignore_errors: yes
+
+- name: 8.17.1. repo update
+  ansible.builtin.shell:
+    cmd: |
+      helm repo update
+
+- name: 8.4-1.3. Deploy jaeger helm chart
+  ansible.builtin.shell:
+    cmd: |
+      helm install jaeger jaegertracing/jaeger \
+        --set provisionDataStore.cassandra=false \
+        --set provisionDataStore.elasticsearch=true \
+        --set storage.elasticsearch.host=jaeger-elasticsearch \
+        --set storage.type=elasticsearch \
+        --set query.ingress.enabled=true \
+        --set query.ingress.hosts[0]=jaeger.{{DOMAIN_NAME}} \
+        --set query.ingress.pathType=ImplementationSpecific \
+        --namespace tracing \
+        --create-namespace
+  tags:
+    - catalog_jaeger

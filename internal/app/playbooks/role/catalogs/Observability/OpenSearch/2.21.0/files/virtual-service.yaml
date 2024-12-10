@@ -1,0 +1,21 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: opensearch-dashboard
+  namespace: logging
+spec:
+  gateways:
+  - istio-system/istio-gateway
+  hosts:
+  - "opensearch-dashboards.cnstudio.com"
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: opensearch-dashboards
+        port:
+          number: 5601
+
+

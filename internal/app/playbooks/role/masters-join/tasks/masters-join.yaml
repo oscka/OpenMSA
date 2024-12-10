@@ -1,0 +1,51 @@
+- name: Download RKE2 install script
+  get_url:
+    url: https://get.rke2.io
+    dest: /tmp/rke2-install.sh
+    mode: '0755'
+
+- name: Install RKE2 with sudo
+  shell: sudo sh /tmp/rke2-install.sh
+
+## RKE2 configuration file
+- name: 5.7. Make necessary directories
+  file:
+    path: /etc/rancher/rke2
+    state: directory
+
+- name: 5.8. Copy token
+  copy:
+    src: "{{ LOCAL_PATH.BASE }}/node-token/token"
+    dest: /root/node-token
+
+- name: 5.9. Display the cluster token from the file and emphasize it
+  shell: cat /root/node-token
+  register: node_token
+
+- name: 5.10. Add the content to the file
+  copy:
+    dest: /etc/rancher/rke2/config.yaml
+    content: |
+      server: https://{{ ALL_Servers[0].ip }}:9345
+      token: {{ node_token.stdout }}
+      write-kubeconfig-mode: "0644"
+      node-name: {{ inventory_hostname }}
+      tls-san:
+        - {{ ALL_Servers[0].ip }}
+      etcd-expose-metrics: true
+
+## Run RKE2 Service
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+
+- name: 3.9. Enable and start the rke2-server service
+  systemd:
+    name: rke2-server
+    state: started
+    enabled: true
+  register: "check_rke2server_state"
+
+- name: 5.12. Print rke2-server service status
+  debug:
+    msg: "{{ check_rke2server_state }}"

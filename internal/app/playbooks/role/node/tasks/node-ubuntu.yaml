@@ -1,0 +1,152 @@
+# ######################## only yum conf #######################
+
+# # Create the directory as yum backup 
+# - name: 2.1. Create the directories as yum backup
+#   file:
+#     path: "/root/backup/"
+#     state: directory
+
+# # Copy files as yum backup
+# - name: 2.2. Copy files as yum backup
+#   shell: "cp -rf /etc/yum.repos.d /root/backup"
+
+# # Delete files as all yum repo
+# - name: 2.3. Delete files as all yum repo
+#   shell: "rm -f /etc/yum.repos.d/*"
+
+# # Copy files as yum repo
+# - name: 2.4. Copy files as yum repos
+#   copy:
+#     src: "./files/yum.repos.d/"
+#     dest: "/etc/yum.repos.d/"
+# ################################################################
+
+# Create the directories
+# - name: 2.5. Create the directories
+#   file:
+#     path: "{{ item }}"
+#     state: directory
+#   with_items:
+#     - /root/rke2-required
+#     - /root/rancher
+
+# Copy install files
+# - name: 2.6. Copy install files
+#   copy:
+#     src: "{{ LOCAL_PATH.BASE }}/packages/{{ item }}" 
+#     dest: "{{ LOCAL_PATH.BASE }}/packages"
+#   with_items:
+#     - "rke2-required"
+#     - "rancher"
+#     - "longhorn"
+
+# # Install the required packages
+# - name: 2.7. Register packages
+#   find:
+#     paths: "{{ LOCAL_PATH.BASE }}/packages/rke2-required"
+#     patterns: "*.rpm"
+#   register: rpm_files  
+
+# - name: 2.8. Install the required packages
+#   dnf:
+#     name: "{{ item  }}"
+#     state: present
+#     disable_gpg_check: yes
+#   with_items:
+#     - " {{ LOCAL_PATH.BASE }}/packages/rke2-required/container-selinux-2.229.0-2.module+el8.10.0+1825+623b0c20.noarch.rpm"
+
+## Swap off
+- name: 2.9. Swap off
+  shell: swapoff -a
+
+- name: 2.10. Swap off of fstab file
+  shell: sed -i '/swap/s/^/#/' /etc/fstab
+
+- name: 2.11. Check swap memory size
+  shell: free | awk 'NR == 3 { print $2 }'
+  register: check_swap_mem
+
+- name: 2.12. Check swapoff
+  debug:
+    msg: "Complete swapoff!"
+  when: check_swap_mem.stdout == '0'
+
+# Flush iptables
+- name: 2.13. Flush iptables
+  iptables:
+    flush: yes
+
+# # Diable SELinux
+# - name: 2.14. Disable SELinux
+#   ansible.posix.selinux:
+#     policy: targeted
+#     state: disabled
+
+# - name: 2.15. Update SELinux configuration file
+#   lineinfile:
+#     path: /etc/selinux/config
+#     regexp: '^SELINUX='
+#     line: SELINUX=disabled
+#     backup: yes # 내용이 다르면 백업(파일이름.날짜 형식) / 같으면 백업 X
+
+# - name: 2.16. SELinux state
+#   shell: getenforce
+#   register: "check_selinux"
+
+# - name: 2.17. Print SELinux status
+#   debug:
+#     msg: "{{ check_selinux.stdout }}"
+
+
+# # Configure network
+# - name: 2.18. Check NetworkManager directory exists
+#   file:
+#     path: "{{ NET_CONF_DIR }}"
+#     state: directory
+
+# - name: 2.19. Add the content to the file
+#   copy:
+#     dest: "{{ NET_CONF_FILE }}"
+#     content: |
+#       ##
+#       [keyfile]
+#       unmanaged-devices=interface-name:cali*;interface-name:flannel*
+#       ##
+
+# - name: 2.20. Reload NetworkManager
+#   systemd_service:
+#     name: NetworkManager
+#     state: restarted
+#     enabled: true
+#   register: "check_networkmanager_status"
+
+# - name: 2.21. Print NetworkManager service status
+#   debug:
+#     msg: "{{ check_networkmanager_status }}"
+
+
+# # Disable firewalld
+# - name: 2.22. Be sure firewalld is disabled
+#   systemd: name=firewalld enabled=no
+#   ignore_errors: true
+
+# - name: 2.23. Be sure firewalld is stopped
+#   systemd: name=firewalld state=stopped
+#   ignore_errors: true
+- name: 2.9. Swap off
+  shell:  systemctl stop ufw && ufw disable && iptables -F
+
+# # Reboot
+# - name: 2.24. Reboot the all servers
+#   shell: "sleep 5 && reboot"
+
+#   async: 1
+#   poll: 0
+
+# - name: 2.25. Wait for the machine to come back online
+#   wait_for_connection:
+#     delay: 60
+#     timeout: 500
+#     sleep: 5
+
+

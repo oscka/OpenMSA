@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-demo-api-svc
+  namespace: nodeapi
+spec:
+  selector:
+    app: node-demo-api
+  ports:
+  - protocol: TCP
+    name: http
+    port: 3000
+    targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-demo-api-deploy
+  namespace: nodeapi    
+  labels:
+    app: node-demo-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: node-demo-api
+  template:
+    metadata:
+      labels:
+        app: node-demo-api     
+    spec:
+      containers:
+        - name: node-demo-api
+          image: oscka/node-demo-api:v0.1
+          ports:
+          - name: http
+            containerPort: 3000

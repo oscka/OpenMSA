@@ -1,0 +1,42 @@
+- name: 6.1. Install and set RKE2 with curl
+  shell: curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE="agent" sudo sh -
+ 
+
+## RKE2 configuration file
+- name: 6.7. Make necessary directories
+  file:
+    path: /etc/rancher/rke2
+    state: directory
+
+- name: 6.8. Copy token
+  copy:
+    src: "{{ LOCAL_PATH.BASE }}/node-token/token"
+    dest: /root/node-token
+
+- name: 6.9. Display the cluster token from the file and emphasize it
+  shell: cat /root/node-token
+  register: node_token
+
+- name: 6.10. Display the cluster token from the file and emphasize it
+  shell: cat /root/node-token
+  register: node_token
+
+- name: 6.11. Add the content to the file
+  copy:
+    dest: /etc/rancher/rke2/config.yaml
+    content: |
+      server: https://{{ ALL_Servers[0].ip }}:9345
+      token: {{ node_token.stdout }} #TODO: 클러스터 토큰값 고정
+      node-name: {{ inventory_hostname }}
+
+## RKE2 Start
+- name: 6.12. Enable and start the rke2-agent service
+  systemd:
+    name: rke2-agent
+    state: started
+    enabled: true
+  register: "check_rke2angent_state"
+
+- name: 6.13. Print rke2-agent service status
+  debug:
+    msg: "{{ check_rke2angent_state }}"

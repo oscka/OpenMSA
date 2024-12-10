@@ -1,0 +1,377 @@
+- name: install control node (kubeadm)
+  hosts: control
+  remote_user:  "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: ./role/control
+  tags:
+    - install-control
+
+- name: install node
+  hosts: k8s-cluster
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+         name: ./role/node 
+  tags:
+    - install-node
+
+- name: init master
+  hosts: master-init
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+       name: ./role/master-init 
+  tags:
+    - init-master
+
+- name: configure control node
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name:  ./role/control-kube
+  tags:
+    - configure-control-node
+
+- name: join master
+  hosts: masters-connect
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: ./role/masters-join
+      when: "'masters-connect' in groups" 
+  tags:
+    - join-master
+  
+- name: join worker
+  hosts: workers
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: ./role/workers 
+  tags:
+    - join-worker
+
+- name: label workers
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: ./role/labels 
+  tags:
+    - label-workers
+
+- name: Deploy RancherUI
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/Observability/Rancherui/{{ RANCHERUI_VERSION }}"
+      when: DEPLOY_RANCHERUI
+  tags:
+    - catalog_rancherui
+
+- name:  Deploy Longhorn
+  hosts: all
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/Storage/Longhorn/{{ LONGHORN_VERSION }}"
+      when: DEPLOY_LONGHORN
+  tags:
+    - longhorn
+
+- name: Deploy Prometheus
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    -  include_role: 
+          name: "./role/catalogs/Observability/Prometheus/{{ PROMETHEUS_VERSION }}"
+       when: DEPLOY_PROMETHEUS | default(False)
+  tags:
+    - prometheus
+
+- name: Deploy OpenSearch
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    -  include_role:
+        name: "./role/catalogs/Observability/OpenSearch/{{ OPENSEARCH_VERSION }}"
+       when: DEPLOY_OPENSEARCH | default(False)
+  tags:
+    - catalog_opensearch
+
+- name: Deploy Jaeger
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/Observability/Jaeger/{{ JAEGER_VERSION }}"
+      when: DEPLOY_JAEGER | default(False)
+  tags:
+    - catalog_jaeger
+
+- name: Deploy Minio
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    -  include_role: 
+         name: "./role/catalogs/Storage/Minio/{{ MINIO_VERSION }}"
+       when: DEPLOY_MINIO | default(False)
+  tags:
+    - minio
+
+- name: Deploy Velero
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    -  include_role: 
+         name: "./role/catalogs/Backup/Velero/{{ VELERO_VERSION }}"
+       when: DEPLOY_VELERO | default(False)
+  tags:
+    - velero
+
+- name: Deploy Argocd
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    -  include_role: 
+         name: "./role/catalogs/CICD/ArgoCD/{{ ARGOCD_VERSION }}"
+       when: DEPLOY_ARGOCD | default(False)
+  tags:
+    - argocd
+
+- name: Deploy Keycloak
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/Auth/Keycloak/{{ KEYCLOAK_VERSION }}"
+      when: DEPLOY_KEYCLOAK | default(False)
+  tags:
+    - keycloak
+
+- name: Deploy Demo java Api
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/SampleCode/Java"
+      when:  DEPLOY_JAVACODE | default(false) 
+  tags:
+    - java
+
+- name: Deploy Spring Cloud GW
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    -  include_role: 
+         name: "./role/catalogs/SampleCode/Spring_Cloud_GW"
+       when: DEPLOY_APIGATEWAY | default(False)
+  tags:
+    - gateway
+
+- name: Deploy NodeJs
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    -  include_role:
+         name: "./role/catalogs/SampleCode/Nodejs"
+       when: DEPLOY_NODEJSCODE | default(False)
+  tags:
+    - nodejs
+
+- name: Deploy Python
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    -  include_role:
+        name: "./role/catalogs/SampleCode/Python"
+       when: DEPLOY_PYTHONCODE | default(False)
+  tags:
+    - python
+
+- name: Deploy Gitlab
+  hosts: k8s-cluster
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role: 
+        name: "./role/catalogs/CICD/Gitlab/{{GITLAB_VERSION}}"
+      when: DEPLOY_GITLAB | default(False)
+  tags:
+    - gitlab
+
+- name: Deploy Jenkins
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/CICD/Jenkins/{{ JENKINS_VERSION }}"
+      when: DEPLOY_JENKINS | default(False)
+  tags:
+    - jenkins
+
+- name: Deploy Neuvector
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/Security/Neuvector/{{ NEUVECTOR_VERSION }}"
+      when: DEPLOY_NEUVECTOR | default(False)
+  tags:
+    - neuvector
+
+- name: Deploy MYSQL
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/DB/MySQL/{{ MYSQL_VERSION }}"
+      when:  DEPLOY_MYSQL | default(false) 
+  tags:
+    - mysql
+
+- name: Deploy MariaDB
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/DB/MariaDB/{{ MARIADB_VERSION }}"
+      when: DEPLOY_MARIADB | default(False)
+  tags:
+    - mariadb
+
+- name: Deploy PostgreSQL
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/DB/Postgresql/{{ POSTGRESQL_VERSION }}"
+      when: DEPLOY_POSTGRESQL | default(False)
+  tags:
+    - postgresql
+
+- name: Deploy KAFKA
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/DB/Kafka/{{ KAFKA_VERSION }}"
+      when: DEPLOY_KAFKA | default(False)
+  tags:
+    - kafka
+
+- name: Deploy REDIS
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/DB/Redis/{{ REDIS_VERSION }}"
+      when: DEPLOY_REDIS | default(False)
+  tags:
+    - redis
+
+- name: Deploy ISTIO
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/Network/Istio/{{ ISTIO_VERSION }}"
+      when: DEPLOY_ISTIO | default(False)
+  tags:
+    - catalog_istio
+
+#- name: Deploy KUBECOST
+#  hosts: control
+#  remote_user: "{{ USER }}"
+#  become: True
+#  gather_facts: True
+#  tasks:
+#    - include_role:
+#        name: "./role/catalogs/Observability/Kubecost/{{ KUBECOST_VERSION }}"
+#      when: DEPLOY_KUBECOST | default(False)
+#  tags:
+#    - catalog_istio
+#
+ #### template #####     
+ #- name: Deploy << catalog_name 입력 >>
+ #  hosts: control
+ #  remote_user: "{{ USER }}"
+ #  become: True
+ #  gather_facts: True
+ #  tasks:
+ #    - include_role:
+ #        name: "./role/catalogs/<role_path 경로 입력>/{{ <CATALOGENAME 입력>_VERSION }}"
+ #      when: DEPLOY_<<catalog_name 입력 >> | default(False)
+ #  tags:
+ #    - catalog_<<catalog_name 입력>>
+
+- name: Deploy VirtualServices to Kubernetes
+  hosts: control
+  become: True
+  tasks:
+    - name: Render and apply VirtualService templates
+      include_tasks: "./virtualservices/virtualservices.yaml"
+      when: DEPLOY_ISTIO | default(False)
+  tags:
+    - virtualservices 
+

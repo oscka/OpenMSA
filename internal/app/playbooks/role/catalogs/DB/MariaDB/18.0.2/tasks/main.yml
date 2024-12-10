@@ -1,0 +1,2 @@
+- name: 8.17. Download and install mariadb {{ mariadb_version }}
+  ansible.builtin.include_tasks: mariadb.yml

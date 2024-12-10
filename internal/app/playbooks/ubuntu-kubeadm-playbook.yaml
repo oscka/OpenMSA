@@ -1,0 +1,321 @@
+- hosts: all
+  become: yes
+  tasks:
+    - name: Reset Kubernetes cluster and remove existing configurations
+      ansible.builtin.shell: |
+        sudo kubeadm reset -f && sudo rm -rf /etc/kubernetes /var/lib/etcd && sudo systemctl stop kubelet && sudo rm -rf /etc/kubernetes /var/lib/etcd && sudo kubeadm reset -f&& sudo rm -rf /etc/kubernetes&& sudo rm -rf /var/lib/etcd&& sudo rm -rf ~/.kube && sudo rm -rf /tmp/kubeadm_join_command.sh
+      args:
+        executable: /bin/bash
+      ignore_erros: yes
+
+    - name: Remove outdated Kubernetes repository configuration files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      with_items:
+        - /etc/apt/sources.list.d/kubernetes.list
+        - /etc/apt/keyrings/kubernetes-archive-keyring.gpg
+        - /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      ignore_errors: yes
+
+    - name: Disable system swap for Kubernetes compatibility
+      ansible.builtin.command: swapoff -a
+      when: ansible_swaptotal_mb > 0
+
+    - name: Prevent swap from being mounted on system reboot
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+        replace: '# \1'
+
+    - name: Install network transport and certificate packages
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+        state: present
+        update_cache: yes
+
+    - name: Ensure containerd configuration directory exists
+      ansible.builtin.file:
+        path: /etc/containerd
+        state: directory
+
+    - name: Generate default containerd configuration
+      ansible.builtin.shell: |
+        containerd config default > /etc/containerd/config.toml
+      args:
+        creates: /etc/containerd/config.toml
+
+    - name: Configure containerd to use systemd cgroup driver
+      ansible.builtin.lineinfile:
+        path: /etc/containerd/config.toml
+        regexp: '^\s*SystemdCgroup =.*$'
+        line: '            SystemdCgroup = true'
+        insertafter: '^\s*\[plugins\."io\.containerd\.grpc\.v1\.cri"\.containerd\.runtimes\.runc\.options\]'
+
+    - name: Set Kubernetes pause container image in containerd
+      ansible.builtin.lineinfile:
+        path: /etc/containerd/config.toml
+        regexp: '^\s*sandbox_image =.*$'
+        line: '    sandbox_image = "registry.k8s.io/pause:3.9"'
+        insertafter: '^\s*\[plugins\."io\.containerd\.grpc\.v1\.cri"\]'
+
+    - name: Restart and enable containerd service
+      ansible.builtin.systemd:
+        name: containerd
+        state: restarted
+        enabled: yes
+
+    - name: Create keyrings directory for package management
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Download and import Kubernetes repository GPG key
+      ansible.builtin.shell: |
+        curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+      args:
+        creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+    - name: Configure Kubernetes APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /"
+        state: present
+        filename: kubernetes
+        mode: '0644'
+
+    - name: Update APT package cache
+      ansible.builtin.apt:
+        update_cache: yes
+
+    - name: Install Kubernetes cluster management tools
+      ansible.builtin.apt:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+        update_cache: yes
+
+    - name: Prevent automatic upgrades of Kubernetes packages
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      with_items:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+    - name: Start and enable kubelet service
+      ansible.builtin.systemd:
+        name: kubelet
+        state: started
+        enabled: yes
+
+    - name: Load required kernel modules for Kubernetes networking
+      ansible.builtin.modprobe:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - overlay
+        - br_netfilter
+
+    - name: Configure kernel parameters for Kubernetes networking
+      ansible.builtin.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_set: yes
+        reload: yes
+      with_items:
+        - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+        - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+        - { name: 'net.ipv4.ip_forward', value: '1' }
+
+
+- hosts: control-node
+  become: yes
+  tasks:
+    - name: Set secure permissions for Kubernetes configuration directory
+      ansible.builtin.shell: |
+        sudo mkdir -p /etc/kubernetes/pki
+        sudo chmod 0777 /etc/kubernetes 
+        sudo chmod 0777 /etc/kubernetes/pki 
+      args:
+        executable: /bin/bash
+
+
+- hosts: masters
+  become: yes
+  tasks:
+    - name: Pre-pull Kubernetes control plane images
+      ansible.builtin.command: kubeadm config images pull --kubernetes-version=1.29.0
+
+    - name: Initialize first master node
+      ansible.builtin.command: >
+        kubeadm init
+        --control-plane-endpoint "192.168.31.182:6443"
+        --upload-certs
+        --kubernetes-version=1.29.0
+        --pod-network-cidr=10.244.0.0/16
+      register: kubeadm_init
+      when: inventory_hostname == "node01"
+
+    - name: Generate worker node join command
+      ansible.builtin.shell: "echo '{{ kubeadm_init.stdout_lines[-2] }} --discovery-token-unsafe-skip-ca-verification' > /tmp/kubeadm_join_command.sh"
+      args:
+        executable: /bin/bash
+      when: inventory_hostname == "node01"
+
+    - name: Create PKI directory on non-primary master nodes
+      ansible.builtin.file:
+        path: /etc/kubernetes/pki
+        state: directory
+        mode: '0755'
+      when: inventory_hostname != "node01"  
+
+    - name: Fetch CA certificates from primary master node
+      fetch:
+        src: "/etc/kubernetes/pki/{{ item }}"
+        dest: "./files/pki/"
+        flat: yes
+      with_items:
+        - ca.crt
+        - ca.key
+        - front-proxy-ca.crt
+        - front-proxy-ca.key
+        - sa.pub
+        - sa.key
+      when: inventory_hostname == "node01"  
+
+    - name: Create ETCD PKI directory on non-primary master nodes
+      ansible.builtin.file:
+        path: /etc/kubernetes/pki/etcd
+        state: directory
+        mode: '0755'
+      when: inventory_hostname != "node01"
+
+    - name: Fetch ETCD CA certificates from primary master node
+      fetch:
+        src: "/etc/kubernetes/pki/etcd/{{ item }}"
+        dest:  "./files/etcd/"
+        flat: yes
+      with_items:
+        - ca.crt
+        - ca.key
+      when: inventory_hostname == "node01"   
+
+    - name: Clean up join command script
+      ansible.builtin.command: sed -i 's/\\//g' /tmp/kubeadm_join_command.sh 
+      args:
+        executable: /bin/bash
+      when: inventory_hostname == "node01"
+
+    - name: Fetch join command from primary master node
+      fetch:
+        src: "/tmp/kubeadm_join_command.sh"
+        dest: "./files/"
+        flat: yes
+      when: inventory_hostname == "node01"     
+
+- hosts: all
+  become: yes
+  tasks:
+    - name: Copy join command to non-primary nodes
+      copy:
+        src: "./files/{{ item }}"
+        dest: "/tmp/{{ item }}"
+      with_items:
+        - kubeadm_join_command.sh
+      when: inventory_hostname != "node01"        
+
+- hosts: control-node
+  become: yes
+  tasks:
+    # - name: Copy join command to other masters and workers
+    #   ansible.builtin.copy:
+    #     src: /tmp/kubeadm_join_command.sh
+    #     dest: /tmp/kubeadm_join_command.sh
+    #   when: inventory_hostname != "node01"
+
+    - name: Create Kubernetes configuration directory
+      ansible.builtin.shell: |
+        mkdir -p ~/.kube
+      
+- hosts: masters
+  become: yes
+  tasks:
+    - name: Copy cluster certificates to non-primary master nodes
+      copy:
+        src: "./files/pki/{{ item }}"
+        dest: "/etc/kubernetes/pki/{{ item }}"
+      with_items:
+        - ca.crt
+        - ca.key
+        - front-proxy-ca.crt
+        - front-proxy-ca.key
+        - sa.pub
+        - sa.key
+      when: inventory_hostname != "node01"  
+
+    - name: Copy ETCD certificates to non-primary master nodes
+      copy:
+        src: "./files/etcd/{{ item }}"
+        dest:  "/etc/kubernetes/pki/etcd/{{ item }}"
+      with_items:
+        - ca.crt
+        - ca.key
+      when: inventory_hostname != "node01"  
+
+    - name: Modify join command for additional master nodes
+      ansible.builtin.shell: |
+        sed -i 's/$/ --control-plane/' /tmp/kubeadm_join_command.sh
+      args:
+        executable: /bin/bash
+      when: inventory_hostname != "node01"
+
+    - name: Join additional master nodes to the Kubernetes cluster
+      ansible.builtin.shell: |
+        bash /tmp/kubeadm_join_command.sh
+      args:
+        executable: /bin/bash
+      when: inventory_hostname != "node01"
+
+- hosts: workers
+  become: yes
+  tasks:
+    - name: Join worker nodes to the Kubernetes cluster
+      ansible.builtin.shell: |
+        bash /tmp/kubeadm_join_command.sh
+      args:
+        executable: /bin/bash
+
+- hosts: masters
+  become: yes
+  tasks:
+    - name: Fetch cluster configuration for control node
+      fetch:
+        src: /etc/kubernetes/admin.conf  
+        dest: /home/{{ USER }}/.kube/config
+        flat: yes
+      when: inventory_hostname == "node01"    
+
+- hosts: control-node
+  become: yes
+  tasks:
+    - name: Link kubectl binary to system path
+      ansible.builtin.command: ln -sf /usr/bin/kubectl /usr/local/bin/kubectl
+      args:
+        executable: /bin/bash
+
+    - name: Install Calico network plugin
+      ansible.builtin.shell: |
+        export KUBECONFIG=/home/{{ USER }}/.kube/config
+        kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/calico.yaml
+      args:
+        executable: /bin/bash
+
+

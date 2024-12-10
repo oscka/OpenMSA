@@ -1,0 +1,101 @@
+---
+
+- name: 8.11.1. Create a api namespace
+  shell: |
+    kubectl create ns {{NODE_API_NAMESPACE}}
+  tags: 
+    - node-api
+    - node-project
+    - node-ex
+    - node-api-argocd
+    - node-project-argocd
+    - node-ex-argocd
+
+
+- name: 8.11.2. node-api 배포 
+  shell: |
+    kubectl apply -f {{ role_path }}/files/node-api-deploy.yaml
+  register: output
+  tags: 
+    - node-api
+    - node-project
+    - node-ex
+    - node-api-argocd
+
+#--[output]--
+- debug:
+    var: output
+  tags: 
+    - node-api
+    - node-project
+    - node-ex
+    - node-api-argocd
+
+- name: 8.11.3. node-ops-argocd-repo-add 
+  shell: |
+    /usr/local/bin/argocd login --insecure {{ARGOCD_HOST}}  --username admin  --password {{ARGOCD_NEW_PASSWORD}} 
+    /usr/local/bin/argocd repo add {{DEMO_OPS_REPO_URL}} --username {{DEMO_OPS_GIT_USER}} --password {{DEMO_OPS_GIT_SECRET}} --insecure-skip-server-verification
+  register: output
+  tags: 
+    - node-ops-argocd
+    - node-api-argocd
+    - node-project-argocd
+    - node-ex-argocd
+  when: DEMO_OPS_REPO_PRIVATE == 'Y'
+
+#--[output]--
+- debug:
+    var: output
+  tags: 
+    - node-ops-argocd
+    - node-api-argocd
+    - node-project-argocd
+    - node-ex-argocd
+
+
+- name: 8.11.4. node-api-argocd-application 배포 
+  shell: |
+    kubectl apply -f {{ role_path  }}/files/node-api-argocd-apps.yaml
+  register: output
+  tags: 
+    - node-api-argocd
+    - node-project-argocd
+    - node-ex-argocd
+
+#--[output]--
+- debug:
+    var: output
+  tags: 
+    - node-api-argocd
+    - node-project-argocd
+    - node-ex-argocd
+
+
+#### node-api ingress 배포
+- name: 8.11.5. node-api ingress 배포 
+  shell: |
+    kubectl apply -f {{ role_path }}/files/node-api-ingress.yaml
+  register: output
+  tags: 
+    - node-api-ing
+    - node-api
+    - node-project
+    - node-ex
+    - node-api-argocd
+    - node-project-argocd
+    - node-ex-argocd
+#--[output]--
+- debug:
+    var: output
+  tags: 
+    - node-api-ing
+    - node-api
+    - node-project
+    - node-ex
+    - node-api-argocd
+    - node-project-argocd
+    - node-ex-argocd
+
+
+
+    

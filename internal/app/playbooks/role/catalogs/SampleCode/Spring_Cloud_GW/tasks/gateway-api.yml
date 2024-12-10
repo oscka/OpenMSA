@@ -1,0 +1,100 @@
+---
+
+- name: 8.10.1. Create a api namespace
+  shell: |
+    kubectl create ns {{GATEWAY_API_NAMESPACE}}
+  tags: 
+    - gateway-api
+    - gateway-project
+    - gateway-ex
+    - gateway-api-argocd
+    - gateway-project-argocd
+    - gateway-ex-argocd
+
+
+- name: 8.10.2. gateway-api 배포 
+  shell: |
+    kubectl apply -f {{ role_path }}/files/gateway-api-deploy.yaml
+  register: output
+  tags: 
+    - gateway-api
+    - gateway-project
+    - gateway-ex
+
+#--[output]--
+- debug:
+    var: output
+  tags: 
+    - gateway-api
+    - gateway-project
+    - gateway-ex
+    
+
+- name: 8.10.3. gateway-ops-argocd-repo-add 
+  shell: |
+    /usr/local/bin/argocd login --insecure {{ARGOCD_HOST}}  --username admin  --password {{ARGOCD_NEW_PASSWORD}} 
+    /usr/local/bin/argocd repo add {{DEMO_OPS_REPO_URL}} --username {{DEMO_OPS_GIT_USER}} --password {{DEMO_OPS_GIT_SECRET}} --insecure-skip-server-verification
+  register: output
+  tags: 
+    - gateway-ops-argocd
+    - gateway-api-argocd
+    - gateway-project-argocd
+    - gateway-ex-argocd
+  when: DEMO_OPS_REPO_PRIVATE == 'Y'
+
+#--[output]--
+- debug:
+    var: output
+  tags: 
+    - gateway-ops-argocd
+    - gateway-api-argocd
+    - gateway-project-argocd
+    - gateway-ex-argocd
+
+
+- name: 8.10.4. gateway-api-argocd-application 배포 
+  shell: |
+    kubectl apply -f {{ role_path }}/files/gateway-api-argocd-apps.yaml
+  register: output
+  tags: 
+    - gateway-api-argocd
+    - gateway-project-argocd
+    - gateway-ex-argocd
+
+#--[output]--
+- debug:
+    var: output
+  tags: 
+    - gateway-api-argocd
+    - gateway-project-argocd
+    - gateway-ex-argocd
+
+
+#### gateway-api ingress 배포
+- name: 8.10.5. gateway-api ingress 배포 
+  shell: |
+    kubectl apply -f {{ role_path }}/files/gateway-api-ingress.yaml
+  register: output
+  tags: 
+    - gateway-api-ing
+    - gateway-api
+    - gateway-project
+    - gateway-ex
+    - gateway-api-argocd
+    - gateway-project-argocd
+    - gateway-ex-argocd
+#--[output]--
+- debug:
+    var: output
+  tags: 
+    - gateway-api-ing
+    - gateway-api
+    - gateway-project
+    - gateway-ex
+    - gateway-api-argocd
+    - gateway-project-argocd
+    - gateway-ex-argocd
+
+
+
+    

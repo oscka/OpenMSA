@@ -1,0 +1,19 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: istio-tracing
+  namespace: istio-system
+spec:
+  gateways:
+  - istio-system/istio-gateway
+  hosts:
+  - istio-tracing.cnstudio.kt.com
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: tracing.istio-system.svc.cluster.local
+        port:
+          number: 80

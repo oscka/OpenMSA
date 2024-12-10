@@ -1,0 +1,4 @@
+---
+# tasks file for ansible-role-prometheus
+- name: 8.3. Deploy prometheus
+  ansible.builtin.include_tasks: prometheus.yml

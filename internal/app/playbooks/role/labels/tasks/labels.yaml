@@ -1,0 +1,19 @@
+## Labels
+- name: 7.1. Add labels to nodes
+  command: >
+    kubectl label node {{ item.name }} {{ item.labels | join(' ') }} --overwrite
+  loop: "{{ ALL_Servers }}"
+  when:
+    - item.labels | default([]) | length > 0
+    - "'control' not in item.roles"
+
+
+
+## Taints
+- name: 7.2. Set taints to master nodes
+  command: >
+    kubectl taint node {{ item.name }} node-role.kubernetes.io/control-plane=true:NoSchedule --overwrite
+  with_items: "{{ ALL_Servers }}"
+  when:
+    "'control-plane' in item.roles"
+

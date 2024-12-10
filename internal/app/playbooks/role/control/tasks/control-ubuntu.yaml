@@ -1,0 +1,124 @@
+# Docker install from binary files
+- name: 1.2. Docker file copy
+  copy:
+    src: "{{ LOCAL_PATH.BASE }}/packages/docker/docker-25.0.1.tgz"
+    dest: "/tmp/docker-25.0.1.tgz"
+
+
+- name: 1.5. Copy docker files
+  shell: |
+    mkdir -p /tmp/docker
+
+- name: 1.6. Untar docker file
+  unarchive:
+    src: /tmp/docker-25.0.1.tgz
+    dest: /tmp/docker
+    remote_src: yes
+
+# Copy docker files
+- name: 1.7. Copy docker files
+  shell: |
+    cp /tmp/docker/docker/* /usr/bin/
+  args:
+    creates: "/usr/bin/dockerd"
+
+# Create service from j2 file
+- name: 1.8. Create service from j2 file
+  template:
+    src: ./files/docker.service.j2
+    dest: /etc/systemd/system/docker.service
+  notify:
+    - Reload systemd
+
+# Start docker service
+- name: 1.12. Start and enable docker
+  systemd:
+    name: docker
+    state: started
+    enabled: yes
+
+- name: 1.13. copy docker compose file
+  copy:
+    src: "files/docker-compose"
+    dest: "/usr/bin/docker-compose"
+    mode: 'u+x,g+x'
+
+- name: 1.14. Check installed docker compose
+  command: docker-compose --version
+  register: docker_compose_version
+
+- debug: var=docker_compose_version.stdout_lines
+
+# Load nexus conainer image
+- name: 1.15. Load Images
+  shell: |
+    docker load -i {{ item }}
+  with_items:
+    - "{{ LOCAL_PATH.BASE }}/packages/docker/haproxy.tar"
+
+
+# Create select-haproxy.cfg
+- name: 1.20. Create haproxy select file
+  copy:
+    dest: "{{ LOCAL_PATH.BASE }}/haproxy/select-haproxy.sh"
+    content: |
+        #!/bin/bash
+        # 사용법을 출력하는 함수
+        usage() {
+            echo "Usage: $0 {ingress|istio}"
+            exit 1
+        }
+        # 인자가 제공되지 않은 경우 사용법을 출력합니다.
+        if [ "$#" -ne 1 ]; then
+            usage
+        fi
+        # 스크립트가 위치한 디렉토리를 BASE_DIR로 사용
+        BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        # 인자로 받은 값에 따라 CFG_FILE을 설정합니다.
+        case $1 in
+            ingress)
+                CFG_FILE="ingress-haproxy.cfg"
+                ;;
+            istio)
+                CFG_FILE="istio-haproxy.cfg"
+                ;;
+            *)
+                usage
+                ;;
+        esac
+        # 현재 활성화된 설정 파일을 제거합니다.
+        sudo rm -f $BASE_DIR/haproxy.cfg
+        # 설정 파일을 교체합니다.
+        cp "$BASE_DIR/$CFG_FILE" "$BASE_DIR/haproxy.cfg"
+        # Docker Compose를 재시작합니다.
+        cd "$BASE_DIR"
+        docker-compose down
+        docker-compose up -d
+# run haproxy service
+- name: 1.21. Grant execute permissions
+  shell: chmod +x {{ LOCAL_PATH.BASE }}/haproxy/select-haproxy.sh
+
+# Create haproxy docker compose .
+- name: 1.22. Create haproxy docker compose
+  copy:
+    dest: "{{ LOCAL_PATH.BASE }}/haproxy/docker-compose.yml"
+    content: |
+      version: '3'
+      services:
+        haproxy:
+          image: haproxy:240723
+          container_name: haproxy
+          restart: always
+          ports:
+            - '80:80'
+            - '443:443'
+            - '6443:6443'
+            - '9345:9345'
+            - '8404:8404'
+          volumes:
+            - {{ LOCAL_PATH.BASE }}/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
+
+
+# run haproxy service
+- name: 1.23. Run haproxy
+  shell: docker-compose -f {{ LOCAL_PATH.BASE }}/haproxy/docker-compose.yml up -d

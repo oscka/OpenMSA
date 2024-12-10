@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gateway-demo-api
+  namespace: argocd
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io 
+
+spec:
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gateway
+  project: default
+  source:
+    repoURL: https://gitlab.dspace.kt.co.kr/CNStudioD/CNStudio-sample-source/cnstudio-demo-ops.git
+    path: gateway-demo-api/rolling
+    targetRevision: main
+    
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

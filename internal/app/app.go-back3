@@ -1,0 +1,303 @@
+package app
+
+import (
+        "bufio"
+        "embed"
+        "fmt"
+        "io/fs"
+        "os"
+        "os/exec"
+        "path/filepath"
+        "strings"
+        "go-project/internal/ui"
+        "go-project/internal/utils"
+        "gopkg.in/yaml.v3"
+)
+
+//go:embed playbooks/*
+var playbooks embed.FS
+
+type App struct {
+        PlayNames          []string
+        Tags              []string
+        AnsiblePath       string
+        Playbook          Playbook
+        MainPlaybook      []byte
+        UninstallPlaybook []byte
+        TempDir           string
+        ServerConfig      ServerConfig
+        ConfigFile        string
+}
+
+type Play struct {
+        Name string   `yaml:"name"`
+        Tags []string `yaml:"tags"`
+}
+
+type Playbook []Play
+
+func NewApp() *App {
+        return &App{}
+}
+
+func (app *App) Cleanup() {
+        if app.TempDir != "" {
+                os.RemoveAll(app.TempDir)
+        }
+}
+
+func (app *App) InitializeAnsible() error {
+        path, err := utils.FindExecutable("ansible-playbook")
+        if err != nil {
+                return fmt.Errorf("ansible-playbook is not installed: %v", err)
+        }
+        app.AnsiblePath = path
+        return nil
+}
+
+func (app *App) CopyPlaybookStructure() error {
+        // 임시 디렉토리 생성
+        tempDir, err := os.MkdirTemp("", "ansible-playbook-*")
+        if err != nil {
+                return fmt.Errorf("failed to create temp directory: %v", err)
+        }
+        app.TempDir = tempDir
+
+        // playbooks 디렉토리의 기본 경로 설정
+        playbooksRoot := "playbooks"
+
+        // embed.FS의 전체 파일 구조를 순회하며 복사
+        err = fs.WalkDir(playbooks, playbooksRoot, func(path string, d fs.DirEntry, err error) error {
+                if err != nil {
+                        return err
+                }
+
+                // 상대 경로 계산
+                relPath, err := filepath.Rel(playbooksRoot, path)
+                if err != nil {
+                        return err
+                }
+
+                // 목적지 경로 계산
+                destPath := filepath.Join(app.TempDir, relPath)
+
+                if d.IsDir() {
+                        return os.MkdirAll(destPath, 0755)
+                }
+
+                // 파일 내용 읽기
+                content, err := playbooks.ReadFile(path)
+                if err != nil {
+                        return fmt.Errorf("failed to read embedded file %s: %v", path, err)
+                }
+
+                // 특정 플레이북 파일들 저장
+                switch relPath {
+                case "playbook.yaml":
+                        app.MainPlaybook = content
+                case "uninstall-playbook.yaml":
+                        app.UninstallPlaybook = content
+                }
+
+                // 디렉토리 확인 및 생성
+                dir := filepath.Dir(destPath)
+                if err := os.MkdirAll(dir, 0755); err != nil {
+                        return err
+                }
+
+                // 파일 쓰기
+                return os.WriteFile(destPath, content, 0644)
+        })
+
+        if err != nil {
+                os.RemoveAll(app.TempDir)
+                return fmt.Errorf("failed to copy playbook structure: %v", err)
+        }
+
+        // 메인 플레이북 파일 체크
+        mainPlaybookPath := filepath.Join(app.TempDir, "playbook.yaml")
+        if _, err := os.Stat(mainPlaybookPath); os.IsNotExist(err) {
+                content, err := playbooks.ReadFile(filepath.Join(playbooksRoot, "playbook.yaml"))
+                if err != nil {
+                        os.RemoveAll(app.TempDir)
+                        return fmt.Errorf("main playbook not found in embedded files: %v", err)
+                }
+                app.MainPlaybook = content
+                if err := os.WriteFile(mainPlaybookPath, content, 0644); err != nil {
+                        os.RemoveAll(app.TempDir)
+                        return fmt.Errorf("failed to write main playbook: %v", err)
+                }
+        }
+
+        // 메인 플레이북 파싱
+        if err := yaml.Unmarshal(app.MainPlaybook, &app.Playbook); err != nil {
+                os.RemoveAll(app.TempDir)
+                return fmt.Errorf("failed to parse playbook: %v", err)
+        }
+
+        // 플레이북에서 이름과 태그 추출
+        seen := make(map[string]bool)
+        for _, play := range app.Playbook {
+                app.PlayNames = append(app.PlayNames, play.Name)
+                for _, tag := range play.Tags {
+                        if !seen[tag] {
+                                app.Tags = append(app.Tags, tag)
+                                seen[tag] = true
+                        }
+                }
+        }
+
+        return nil
+}
+
+func (app *App) RunPlaybook(isUninstall bool, args ...string) error {
+        ui.Green.Println("Running Ansible Playbook...")
+
+        playbookPath := filepath.Join(app.TempDir, "playbook.yaml")
+        if isUninstall {
+                playbookPath = filepath.Join(app.TempDir, "uninstall-playbook.yaml")
+        }
+
+        // 플레이북 파일 존재 확인
+        if _, err := os.Stat(playbookPath); os.IsNotExist(err) {
+                return fmt.Errorf("playbook file not found at %s", playbookPath)
+        }
+
+        ui.Yellow.Printf("Executing playbook: %s\n", playbookPath)
+
+        cmdArgs := append([]string{
+                "sudo",
+                app.AnsiblePath,
+                "-i", "/etc/ansible/hosts",
+                playbookPath,
+        }, args...)
+
+        cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
+        cmd.Stdout = os.Stdout
+        cmd.Stderr = os.Stderr
+
+        // Ansible 환경 변수 설정
+        callbackPath := filepath.Join(app.TempDir, "callback_plugins")
+        if _, err := os.Stat(callbackPath); !os.IsNotExist(err) {
+                cmd.Env = append(os.Environ(),
+                        fmt.Sprintf("ANSIBLE_CALLBACK_PLUGINS=%s", callbackPath))
+        }
+
+        if err := cmd.Run(); err != nil {
+                ui.Red.Printf("Error occurred while running playbook: %v\n", err)
+                return err
+        }
+
+        ui.Green.Println("Playbook execution completed successfully.")
+        return nil
+}
+
+func (app *App) GetTagForPlay(playName string) string {
+        for _, play := range app.Playbook {
+                if play.Name == playName && len(play.Tags) > 0 {
+                        return play.Tags[0]
+                }
+        }
+        return ""
+}
+
+func (app *App) SelectAction() {
+        for {
+                ui.Clear()
+                ui.PrintLogo()
+                ui.PrintMenuTitle("Select an action to execute:")
+
+                options := []string{
+                        "1. Install All",
+                        "2. Install Single Task",
+                        "3. Install from Specific Task",
+                        "4. Server Management",
+                        "5. Uninstall All",
+                        "6. Exit",
+                }
+
+                choice := ui.ArrowSelect(options)
+                ui.Clear()
+
+                switch choice {
+                case 0:
+                        app.RunPlaybook(false)
+                        ui.Yellow.Println("Complete installation finished. Exiting CN studio.")
+                        os.Exit(0)
+                case 1:
+                        app.SelectPlay("single")
+                case 2:
+                        app.SelectPlay("after")
+                case 3:
+                        app.EditServer()
+                case 4:
+                        app.ConfirmUninstall()
+                case 5:
+                        ui.Yellow.Println("Exiting CN studio.")
+                        os.Exit(0)
+                }
+        }
+}
+
+func (app *App) ConfirmUninstall() {
+        ui.Clear()
+        reader := bufio.NewReader(os.Stdin)
+        ui.Yellow.Print("Are you sure you want to proceed with complete uninstallation? (y/n) ")
+        text, _ := reader.ReadString('\n')
+
+        if strings.ToLower(strings.TrimSpace(text)) == "y" {
+                app.RunPlaybook(true)
+                os.Exit(0)
+        } else {
+                ui.Yellow.Println("Uninstallation cancelled.")
+        }
+}
+
+func (app *App) SelectPlay(mode string) {
+        ui.Clear()
+        ui.PrintLogo()
+        ui.PrintMenuTitle("Select a task to install:")
+
+        options := make([]string, len(app.PlayNames)+1)
+        for i, name := range app.PlayNames {
+                options[i] = fmt.Sprintf("%d. %s", i+1, name)
+        }
+        options[len(options)-1] = "Go back"
+
+        choice := ui.ArrowSelect(options)
+        if choice == len(options)-1 {
+                return
+        }
+
+        selectedPlay := app.PlayNames[choice]
+        selectedTag := app.GetTagForPlay(selectedPlay)
+
+        ui.Clear()
+
+        if mode == "single" {
+                ui.Cyan.Printf("Selected task: %s\n", selectedPlay)
+                app.RunPlaybook(false, "--tags", selectedTag, "-v")
+                os.Exit(0)
+        } else {
+                var tagsToRun []string
+                startFound := false
+
+                for _, play := range app.PlayNames {
+                        if startFound || play == selectedPlay {
+                                startFound = true
+                                playTag := app.GetTagForPlay(play)
+                                tagsToRun = append(tagsToRun, playTag)
+                        }
+                }
+
+                if len(tagsToRun) == 0 {
+                        ui.Red.Println("Error: Cannot find tags after selected task.")
+                        return
+                }
+
+                tagList := strings.Join(tagsToRun, ",")
+                ui.Green.Printf("Installing all tasks after '%s'.\n", selectedPlay)
+                app.RunPlaybook(false, "--tags", tagList)
+                os.Exit(0)
+        }
+}

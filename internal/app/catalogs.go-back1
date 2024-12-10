@@ -1,0 +1,188 @@
+package app
+
+import (
+        "bufio"
+        "fmt"
+        "os"
+        "path/filepath"
+        "go-project/internal/ui"
+        "github.com/fatih/color"
+        "gopkg.in/yaml.v3"
+)
+
+type CatalogConfig struct {
+        Catalogs map[string]bool `yaml:"DEPLOY_CATALOGS,omitempty"`
+}
+
+func (app *App) SetupCatalogConfig() error {
+    // 1. Read from embedded filesystem
+    configData, err := playbooks.ReadFile("playbooks/group_vars/all/catalogs.yaml")
+    if err != nil {
+        return fmt.Errorf("error reading catalog config: %v", err)
+    }
+
+    // 2. Parse full YAML
+    var fullConfig map[string]interface{}
+    if err := yaml.Unmarshal(configData, &fullConfig); err != nil {
+        return fmt.Errorf("error parsing catalog config: %v", err)
+    }
+
+    // 3. Extract deployment flags
+    catalogs := make(map[string]bool)
+    for key, value := range fullConfig {
+        if key != "DEPLOY_CATALOGS" && 
+           len(key) > 7 && 
+           key[:7] == "DEPLOY_" && 
+           value != nil {
+            
+            switch v := value.(type) {
+            case bool:
+                catalogs[key[7:]] = v
+            }
+        }
+    }
+
+    // 4. Create and save CatalogConfig
+    app.CatalogConfig = CatalogConfig{
+        Catalogs: catalogs,
+    }
+
+    // 5. Ensure configuration is saved in temporary directory
+    if app.TempDir != "" {
+        configDir := filepath.Join(app.TempDir, "playbooks/group_vars/all")
+        if err := os.MkdirAll(configDir, 0755); err != nil {
+            return fmt.Errorf("error creating config directory: %v", err)
+        }
+
+        configPath := filepath.Join(configDir, "catalogs.yaml")
+        app.CatalogConfigFile = configPath
+
+        // Write the original configuration
+        if err := os.WriteFile(configPath, configData, 0644); err != nil {
+            return fmt.Errorf("error copying catalog config: %v", err)
+        }
+    }
+
+    return nil
+}
+
+
+func (app *App) saveCatalogConfig() error {
+        if app.CatalogConfigFile == "" {
+                return fmt.Errorf("catalog config file path not set")
+        }
+
+        // Prepare YAML structure using the CatalogConfig struct
+        config := CatalogConfig{
+                Catalogs: app.CatalogConfig.Catalogs,
+        }
+
+        // Marshal the config
+        data, err := yaml.Marshal(&config)
+        if err != nil {
+                return fmt.Errorf("error marshaling catalog config: %w", err)
+        }
+
+        // Write the file
+        if err := os.WriteFile(app.CatalogConfigFile, data, 0644); err != nil {
+                return fmt.Errorf("error writing catalog config: %w", err)
+        }
+
+        return nil
+}
+
+
+func (app *App) ManageCatalogs() {
+        ui.Clear()
+        ui.PrintLogo()
+        ui.PrintMenuTitle("Catalog Management")
+
+        options := []string{
+                "1. List Catalogs",
+                "2. Toggle Catalog Deployment",
+                "3. Back to Main Menu",
+        }
+
+        for {
+                choice := ui.ArrowSelect(options)
+                ui.Clear()
+
+                switch choice {
+                case 0:
+                        app.listCatalogs()
+                case 1:
+                        app.toggleCatalogDeployment()
+                case 2:
+                        return
+                }
+        }
+}
+
+func (app *App) listCatalogs() {
+        ui.Clear()
+        ui.PrintLogo()
+        ui.PrintMenuTitle("Catalog List")
+
+        if len(app.CatalogConfig.Catalogs) == 0 {
+                color.Yellow("No catalogs configured.")
+        } else {
+                for name, enabled := range app.CatalogConfig.Catalogs {
+                        status := "Disabled"
+                        if enabled {
+                                status = "Enabled"
+                        }
+                        fmt.Printf("%s: %s\n", name, status)
+                }
+        }
+
+        fmt.Print("\nPress Enter to continue...")
+        bufio.NewReader(os.Stdin).ReadBytes('\n')
+}
+
+func (app *App) toggleCatalogDeployment() {
+        ui.Clear()
+        ui.PrintLogo()
+        ui.PrintMenuTitle("Toggle Catalog Deployment")
+
+        // Create options for selection
+        options := make([]string, len(app.CatalogConfig.Catalogs)+1)
+        catalogNames := make([]string, 0, len(app.CatalogConfig.Catalogs))
+        for name := range app.CatalogConfig.Catalogs {
+                catalogNames = append(catalogNames, name)
+        }
+
+        for i, name := range catalogNames {
+                status := "☐"
+                if app.CatalogConfig.Catalogs[name] {
+                        status = "☑"
+                }
+                options[i] = fmt.Sprintf("%s %s", status, name)
+        }
+        options[len(options)-1] = "Save and Exit"
+
+        for {
+                choice := ui.ArrowSelect(options)
+
+                // Exit condition
+                if choice == len(options)-1 {
+                        // Save changes
+                        if err := app.saveCatalogConfig(); err != nil {
+                                color.Red("Error saving catalog config: %v", err)
+                        } else {
+                                color.Green("Catalog configuration saved successfully!")
+                        }
+                        return
+                }
+
+                // Toggle catalog status
+                catalogName := catalogNames[choice]
+                app.CatalogConfig.Catalogs[catalogName] = !app.CatalogConfig.Catalogs[catalogName]
+
+                // Update the display
+                status := "☐"
+                if app.CatalogConfig.Catalogs[catalogName] {
+                        status = "☑"
+                }
+                options[choice] = fmt.Sprintf("%s %s", status, catalogName)
+        }
+}

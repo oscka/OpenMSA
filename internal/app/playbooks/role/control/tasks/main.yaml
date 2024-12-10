@@ -1,0 +1,9 @@
+- name: 1. Congifure the haproxy
+  vars:
+    haproxy_config_dir: "{{ playbook_dir }}/files/haproxy"
+    k8s_master_nodes: "{{ ALL_Servers | selectattr('labels', 'contains', 'master=true') | list }}"
+  include_tasks: haproxy.yaml
+
+- name: 1. Congifure the control server
+  include_tasks: control.yaml
+

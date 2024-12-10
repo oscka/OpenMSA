@@ -1,0 +1,4 @@
+- name: 8.21. Deploy istio helm chart
+  include_tasks: istio.yaml
+  tags:
+    - catalog_istio

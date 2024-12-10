@@ -1,0 +1,11 @@
+---
+- name: Copy sample manifest file
+  ansible.builtin.copy:
+    src: "files/sample_pvc.yml"
+    dest: "/tmp"
+
+- name: deploy sample pod
+  ansible.builtin.shell:
+    cmd: |
+      /var/lib/rancher/rke2/bin/kubectl apply -f /tmp/sample_pvc.yml
+    

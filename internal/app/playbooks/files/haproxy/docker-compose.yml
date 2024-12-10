@@ -1,0 +1,14 @@
+version: '3'
+services:
+  haproxy:
+    image: haproxy:240723
+    container_name: haproxy
+    restart: always
+    ports:
+      - '80:80'
+      - '443:443'
+      - '6443:6443'
+      - '9345:9345'
+      - '8404:8404'
+    volumes:
+      - /home/admin/RESOURCE-240828/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg

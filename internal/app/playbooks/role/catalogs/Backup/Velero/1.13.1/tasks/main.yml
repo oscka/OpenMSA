@@ -1,0 +1,4 @@
+
+---
+- name: 8.6. Download and install velero 
+  ansible.builtin.include_tasks: velero.yml

@@ -1,0 +1,56 @@
+---
+
+- name: 8.1.1 helm repo add
+  ansible.builtin.shell:
+    cmd: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+
+- name: 8.1.1 helm repo Update
+  ansible.builtin.shell:
+    cmd: helm repo update
+
+- name: 8.3.3. Make necessary directories
+  ansible.builtin.shell:
+    cmd: "mkdir -p /grafana"    
+
+- name: 8.3.5. Install Prometheus
+  ansible.builtin.shell:
+    cmd: |
+      helm upgrade -i prometheus prometheus-community/kube-prometheus-stack --version 56.8.2 \
+        --namespace monitoring \
+        --create-namespace \
+        --version={{ PROMETHEUS_VERSION }} \
+        --set grafana.ingress.enabled=true \
+        --set grafana.adminPassword=admin1234 \
+        --set prometheus.ingress.enabled=true \
+        --set prometheus.ingress.hosts="{prometheus.{{ DOMAIN_NAME }}}" \
+        --set grafana.ingress.hosts="{grafana.{{ DOMAIN_NAME }}}" \
+        --set prometheus.prometheusSpec.scrapeInterval=30s \
+        --set prometheus.prometheusSpec.evaluationInterval=30s \
+        -f {{ role_path }}/files/values.yaml
+
+- name: 8.3.6. Copy custom dashboard JSON files to remote host
+  ansible.builtin.copy:
+    src: "files/{{ item }}"
+    dest: "/grafana/{{ item }}"
+  loop:
+    - k8s-system-api-server.json
+    - k8s-system-coredns.json
+    - k8s-views-global.json
+    - k8s-views-namespaces.json
+    - k8s-views-nodes.json
+    - k8s-views-pods.json
+
+- name: 8.3.7 Create ConfigMaps for custom dashboards with release label
+  ansible.builtin.shell:
+    cmd: |
+      for dashboard in k8s-system-api-server k8s-system-coredns k8s-views-global k8s-views-nodes k8s-views-namespaces k8s-views-pods; do
+        kubectl create configmap grafana-dashboard-${dashboard} \
+          --from-file=/grafana/${dashboard}.json \
+          --namespace monitoring \
+          --dry-run=client -o yaml | \
+        kubectl label --local -f - release=prometheus grafana_dashboard=1 -o yaml | \
+        kubectl apply -f -
+      done
+      
+
+

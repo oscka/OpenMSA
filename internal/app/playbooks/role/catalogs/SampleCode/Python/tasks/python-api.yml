@@ -1,0 +1,101 @@
+---
+
+- name: 8.12.1. Create a api namespace
+  shell: |
+    kubectl create ns {{PYTHON_API_NAMESPACE}}
+  tags: 
+    - python-api
+    - python-project
+    - python-ex
+    - python-api-argocd
+    - python-project-argocd
+    - python-ex-argocd
+
+
+- name: 8.12.2. python-api 배포 
+  shell: |
+    kubectl apply -f {{ role_path }}/files/python-api-deploy.yaml
+  register: output
+  tags: 
+    - python-api
+    - python-project
+    - python-ex
+    - python-api-argocd
+
+#--[output]--
+- debug:
+    var: output
+  tags: 
+    - python-api
+    - python-project
+    - python-ex
+    - python-api-argocd
+
+- name: 8.12.3. python-ops-argocd-repo-add 
+  shell: |
+    /usr/local/bin/argocd login --insecure {{ARGOCD_HOST}}  --username admin  --password {{ARGOCD_NEW_PASSWORD}} 
+    /usr/local/bin/argocd repo add {{DEMO_OPS_REPO_URL}} --username {{DEMO_OPS_GIT_USER}} --password {{DEMO_OPS_GIT_SECRET}} --insecure-skip-server-verification
+  register: output
+  tags: 
+    - python-ops-argocd
+    - python-api-argocd
+    - python-project-argocd
+    - python-ex-argocd
+  when: DEMO_OPS_REPO_PRIVATE == 'Y'
+
+#--[output]--
+- debug:
+    var: output
+  tags: 
+    - python-ops-argocd
+    - python-api-argocd
+    - python-project-argocd
+    - python-ex-argocd
+
+
+- name: 8.12.4. python-api-argocd-application 배포 
+  shell: |
+    kubectl apply -f {{ role_path }}/files/python-api-argocd-apps.yaml
+  register: output
+  tags: 
+    - python-api-argocd
+    - python-project-argocd
+    - python-ex-argocd
+
+#--[output]--
+- debug:
+    var: output
+  tags: 
+    - python-api-argocd
+    - python-project-argocd
+    - python-ex-argocd
+
+
+#### python-api ingress 배포
+- name: 8.12.5. python-api ingress 배포 
+  shell: |
+    kubectl apply -f {{ role_path }}/files/python-api-ingress.yaml
+  register: output
+  tags: 
+    - python-api-ing
+    - python-api
+    - python-project
+    - python-ex
+    - python-api-argocd
+    - python-project-argocd
+    - python-ex-argocd
+#--[output]--
+- debug:
+    var: output
+  tags: 
+    - python-api-ing
+    - python-api
+    - python-project
+    - python-ex
+    - python-api-argocd
+    - python-project-argocd
+    - python-ex-argocd
+
+
+
+    

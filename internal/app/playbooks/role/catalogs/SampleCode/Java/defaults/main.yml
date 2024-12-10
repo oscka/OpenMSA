@@ -1,0 +1,26 @@
+---
+########## hosts info #################
+HOST_IP: "{{ansible_host}}"
+
+LOCAL_USER_HOME: "{{ LOCAL_PATH.BASE }}"
+
+########## glb_ingress_namespace #################
+GLB_INGRESS_NAMESPACE: "kube-system"
+
+##########demo-project##############
+DEMO_OPS_REPO_URL: "https://gitlab.dspace.kt.co.kr/CNStudioD/CNStudio-sample-source/cnstudio-demo-ops.git"
+DEMO_OPS_REPO_PRIVATE: "N"
+DEMO_OPS_GIT_USER: "user-id"
+DEMO_OPS_GIT_SECRET: ""
+
+######### demo-api #################
+DEMO_API_NAMESPACE: "api"
+DEMO_API_REPLICAS: 2
+DEMO_API_INGRESS_CLASS: "nginx"
+DEMO_API_INGRESS_HOST: "demo-api.cnstudio.com"
+DEMO_API_SERVICE_TYPE: "ClusterIP"
+DEMO_API_NODE_PORT: 30001
+
+########## argocd #################
+ARGOCD_HOST: "10.71.163.70:30800"  ## TODO 아르고 호스트  주소는 변수 처리 CN 어드민화면에서 변수 파라미터로 적용 가능 여부 확인 필요
+

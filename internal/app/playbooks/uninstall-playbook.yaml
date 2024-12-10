@@ -1,0 +1,112 @@
+- name: Uninstall rke2-cluster-workers
+  hosts: workers
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  ignore_errors: True
+  tasks:
+  - name: Uninstall RKE2 worker nodes
+    shell: /usr/local/bin/rke2-uninstall.sh
+
+- name: Uninstall rke2-cluster-masters-connect
+  hosts: masters-connect
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  ignore_errors: True
+  tasks:
+  - name: Uninstall RKE2 master nodes
+    shell: /usr/local/bin/rke2-uninstall.sh
+
+- name: Uninstall rke2-cluster-masters-init
+  hosts: master-init
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  ignore_errors: True
+  tasks:
+  - name: Uninstall RKE2 master nodes
+    shell: /usr/local/bin/rke2-uninstall.sh
+
+      #
+      #- name: Completely remove RKE2
+      #  hosts: k8s-cluster
+      #  become: true
+      #  tasks:
+      #    - name: Stop RKE2 services
+      #      systemd:
+      #        name: "{{ item }}"
+      #        state: stopped
+      #        enabled: false
+      #      with_items:
+      #        - rke2-server
+      #        - rke2-agent
+      #      ignore_errors: yes
+      #    - name: Remove containers and images
+      #      shell: |
+      #        if [ -f /var/lib/rancher/rke2/bin/crictl ]; then
+      #          /var/lib/rancher/rke2/bin/crictl rm -f $(/var/lib/rancher/rke2/bin/crictl ps -aq)
+      #          /var/lib/rancher/rke2/bin/crictl rmi --all
+      #        fi
+      #      ignore_errors: yes
+      #    - name: Remove CNI interfaces
+      #      shell: |
+      #        ip link delete flannel.1 || true
+      #        ip link delete cni0 || true
+      #        ip link delete flannel-v6.1 || true
+      #      ignore_errors: yes
+      #    - name: Remove RKE2 directories
+      #      file:
+      #        path: "{{ item }}"
+      #        state: absent
+      #      with_items:
+      #        - /var/lib/rancher/rke2
+      #        - /etc/rancher/rke2
+      #        - /var/lib/kubelet
+      #        - /var/lib/containers
+      #        - /var/lib/cni
+      #        - /var/log/containers
+      #        - /var/log/pods
+      #        - /opt/cni
+      #        - /run/flannel
+      #        - /var/run/flannel
+      #        - /usr/local/lib/systemd/system/rke2*
+      #        - /etc/systemd/system/rke2*
+      #        - /var/lib/etcd
+      #        - /var/lib/rancher/rke2-artifacts
+      #        - /tmp/rke2*
+      #    - name: Remove binary files
+      #      file:
+      #        path: "{{ item }}"
+      #        state: absent
+      #      with_items:
+      #        - /usr/local/bin/rke2
+      #        - /usr/local/bin/kubectl
+      #        - /usr/local/bin/crictl
+      #        - /usr/local/bin/ctr
+      #    - name: Remove environment configurations
+      #      lineinfile:
+      #        path: "~/.bashrc"
+      #        regexp: "{{ item }}"
+      #        state: absent
+      #      with_items:
+      #        - ".*KUBECONFIG.*"
+      #        - ".*RKE2.*"
+      #    - name: Reset iptables
+      #      shell: |
+      #        iptables -F
+      #        iptables -X
+      #        ip6tables -F
+      #        ip6tables -X
+      #      ignore_errors: yes
+      #    - name: Reload systemd
+      #      systemd:
+      #        daemon_reload: yes
+      #    - name: Reset failed systemd units
+      #      command: systemctl reset-failed
+      #    - name: Clean system mounts
+      #      shell: |
+      #        for mount in $(mount | grep tmpfs | grep '/var/lib/kubelet' | awk '{ print $3 }'); do
+      #          umount $mount || true
+      #        done
+      #      ignore_errors: yes

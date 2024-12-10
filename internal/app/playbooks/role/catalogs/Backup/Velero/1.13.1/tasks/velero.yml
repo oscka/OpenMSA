@@ -1,0 +1,58 @@
+
+---
+- name: 8.6.1. Extract Velero CLI
+  ansible.builtin.unarchive:
+    src: files/velero-{{ VELERO_VERSION }}-linux-amd64.tar.gz
+    dest: /tmp
+
+- name: 8.6.2. Move Velero CLI to /usr/local/bin
+  ansible.builtin.command:
+    cmd: mv /tmp/velero-v{{ VELERO_VERSION }}-linux-amd64/velero /usr/local/bin/
+
+- name: 8.6.3. Create Velero credentials file
+  ansible.builtin.copy:
+    dest: /root/credentials-velero
+    content: |
+      [default]
+      aws_access_key_id = {{ MINIO_ACCESS_KEY }}
+      aws_secret_access_key = {{ MINIO_SECRET_KEY }}
+
+- name: 8.6.4. Install Velero server
+  ansible.builtin.command:
+    cmd: |
+      velero install
+      --provider aws
+      --plugins velero/velero-plugin-for-aws:v1.7.0
+      --bucket {{ BACKUP_BUCKET }}
+      --secret-file /root/credentials-velero
+      --use-volume-snapshots=true
+      --default-volumes-to-fs-backup=true
+      --use-node-agent
+      --backup-location-config region={{ MINIO_REGION }},s3ForcePathStyle="true",s3Url={{ MINIO_URL }}
+  environment:
+    PATH: "/usr/local/bin:{{ ansible_env.PATH }}"
+
+- name: 8.6.5. Check Velero version
+  ansible.builtin.command:
+    cmd: velero version
+  environment:
+    PATH: "/usr/local/bin:{{ ansible_env.PATH }}"  
+  register: velero_version_output
+
+- name: 8.6.6. Display Velero version
+  ansible.builtin.debug:
+    msg: "{{ velero_version_output.stdout }}"
+
+- name: 8.6.7. Create a Cluster backup (example)
+  ansible.builtin.command:
+    cmd: velero backup create example-backup3 --include-cluster-resources=true
+  environment:
+    PATH: "/usr/local/bin:{{ ansible_env.PATH }}"
+  ignore_errors: yes
+  
+- name: 8.6.8. Schedule daily backup for a Cluster (example)
+  ansible.builtin.command:
+    cmd: velero schedule create daily-backup3 --schedule="@every 24h" --include-cluster-resources=true
+  environment:
+    PATH: "/usr/local/bin:{{ ansible_env.PATH }}"
+  ignore_errors: yes  

@@ -1,0 +1,2 @@
+- name: 8.19. Download and install kafka {{ kafka_version }}
+  ansible.builtin.include_tasks: kafka.yml

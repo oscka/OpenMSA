@@ -1,0 +1,119 @@
+additionalPrometheusRulesMap:
+  rule-name:
+    groups:
+      - name: alert.rules
+        rules:
+          - alert: HighCPUUtilization
+            expr: avg(node_cpu{mode="system"}) > 80
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: High CPU utilization on host {{ $labels.instance }}
+              description: The CPU utilization on host {{ $labels.instance }} has exceeded 80% for 5 minutes.
+
+          - alert: LowDiskSpace
+            expr: node_filesystem_free{fstype="ext4"} < 10e9
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: Low disk space on host {{ $labels.instance }}
+              description: The free disk space on host {{ $labels.instance }} has dropped below 10G
+
+          - alert: HighMemoryUtilization
+            expr: node_memory_MemTotal - node_memory_MemFree < 0.8 * node_memory_MemTotal
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: High memory utilization on host {{ $labels.instance }}
+              description: The memory utilization on host {{ $labels.instance }} has exceeded 80% for 5 minutes
+
+          - alert: HighNetworkTraffic
+            expr: node_network_receive_bytes > 100e6
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: High network traffic on host {{ $labels.instance }}
+              description: The inbound network traffic on host {{ $labels.instance }} has exceeded 100 MB/s for 5 minutes.
+
+          - alert: HighRequestErrorRate
+            expr: (sum(rate(http_requests_total{status="500"}[5m])) / sum(rate(http_requests_total[5m]))) > 0.05
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: High request error rate
+              description: The error rate for HTTP requests has exceeded 5% for 5 minutes.
+
+          - alert: NodeDown
+            expr: kube_node_status_condition{condition="Ready",job="kube-state-metrics",status="true"} == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: Node {{ $labels.instance }} is down
+              description: Node {{ $labels.instance }} has been down for 5 minutes
+
+          - alert: PodNotReady
+            expr: sum by (namespace, pod, cluster) (max by (namespace, pod, cluster) (kube_pod_status_phase{job="kube-state-metrics",namespace=~".*",phase=~"Pending|Unknown|Failed"}) * on (namespace, pod, cluster) group_left (owner_kind) topk by (namespace, pod, cluster) (1, max by (namespace, pod, owner_kind, cluster) (kube_pod_owner{owner_kind!="Job"}))) > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: Pod {{ $labels.namespace }}/{{ $labels.pod }} is not ready
+              description: Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in a non-ready state for more than 5 minutes.
+
+alertmanager:
+  config:
+    global:
+      resolve_timeout: 5m
+      slack_api_url: https://hooks.slack.com/services/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
+    route:
+      group_by: ['job']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 2m
+      receiver: 'null'
+      receiver: 'slack'
+      routes:
+      - match:
+          alertname: Watchdog
+        receiver: 'null'
+    receivers:
+    - name: 'null'
+    - name: 'slack'
+      slack_configs:
+              - channel: 'test-alert1'  #<채널명 입력>
+                username: 'prometheus'
+                send_resolved: false
+                icon_url: https://avatars3.githubusercontent.com/u/3380462
+                title: |-
+                 [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }} for {{ .CommonLabels.job }}
+                text: >-
+                   {{ range .Alerts -}}
+                   *Alert:* {{ .Annotations.title }}{{ if .Labels.severity }} - `{{ .Labels.severity }}`{{ end }}
+                   *Description:* {{ .Annotations.description }}
+                   *Details:*
+                     {{ range .Labels.SortedPairs }} • *{{ .Name }}:* `{{ .Value }}`
+                     {{ end }}
+                   {{ end }}
+    templates:
+    - '/etc/alertmanager/config/*.tmpl'
+
+prometheusOperator:
+  nodeSelector:
+    storage: "true"
+prometheus:
+  prometheusSpec:
+    nodeSelector:
+      storage: "true"
+alertmanager:
+  alertmanagerSpec:
+    nodeSelector:
+      storage: "true"
+grafana:
+  nodeSelector:
+    storage: "true"

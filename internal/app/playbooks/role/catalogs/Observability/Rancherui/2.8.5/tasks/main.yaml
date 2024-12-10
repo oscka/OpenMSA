@@ -1,0 +1,4 @@
+- name: 8.1. Install rancher ui helm chart
+  include_tasks: rancherui.yaml
+  tags:
+    - catalog_rancherui

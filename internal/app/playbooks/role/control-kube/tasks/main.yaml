@@ -1,0 +1,4 @@
+---
+# congure control kube congurations
+- name: 4. Install control kube configurations
+  include_tasks: control-kube.yaml

@@ -1,0 +1,4 @@
+---
+rke2_control_node_name: "control"
+rke2_server_node_name: "masters"
+GRAFANA_PASSWORD: admin1234

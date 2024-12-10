@@ -1,0 +1,60 @@
+# 입시 폴더 생성
+- name: "8.13.1.1. ===== Create temporary directory ====="
+  file:
+    path: "{{TEMP_DIR_PATH}}"
+    state: directory
+
+# Nexus Helm 저장소 연결
+- name: "8.13.1.2. ===== Unarchive gitlab helm chart (Nexus) ====="
+  block:
+    # # Nexus Helm 저장소 정보 추가
+    # - name: "[ STEP 1 ] # 2-1-1. Add helm gitlab chart repository"
+    #   shell: helm repo add gitlab {{GITLAB_HELM_REPOSITORY_URL}}
+
+    # # Nexus Helm 저장소 업데이트
+    # - name: "[ STEP 1 ] # 2-1-2. Update gitlab chart repository"
+    #   shell: helm repo update gitlab
+
+    # # GitLab Helm Chart 내려받기
+    # - name: "[ STEP 1 ] # 2-1-3. Fetch gitLab chart from repository"
+    #   shell:
+    #     chdir: "{{TEMP_DIR_PATH}}"
+    #     cmd: |
+    #       helm fetch gitlab/gitlab --untar --version {{GITLAB_HELM_VERSION | default(GITLAB_DEFAULT_HELM_VERSION, true)}}
+    #       helm fetch gitlab/gitlab-runner --untar --version {{GITLAB_RUNNER_HELM_VERSION | default(GITLAB_RUNNER_DEFAULT_HELM_VERSION, true)}}
+
+    - name: "8.13.1.2.1. Fetch gitlab chart"
+      unarchive:
+        src: archives/helm/chart/{{GITLAB_HELM_VERSION | default(GITLAB_DEFAULT_HELM_VERSION, true)}}/gitlab-{{GITLAB_HELM_VERSION | default(GITLAB_DEFAULT_HELM_VERSION, true)}}.tar.gz
+        dest: "{{TEMP_DIR_PATH}}"
+
+  rescue:
+    # Helm Chart 내려 받기 도중 오류 발생 시, 임시 폴더 삭제
+    - name: "8.13.1.2.2. ***** ERROR OCCURED : Remove temporary diectory *****"
+      become: true
+      file:
+        path: "{{TEMP_DIR_PATH}}"
+        state: absent
+
+# GitLab 설치에 필요한 기본 YAML Manifests 파일 전송
+- name: "8.13.1.3. ===== Copy manifest files ====="
+  block:
+      
+    # GitLab Helm Chart 설정 덮어씌울 내용이 담긴 YAML 파일 작성
+    - name: "8.13.1.3.1. Copy override values YAML file"
+      template:
+        src: override_values.yml.j2
+        dest: "{{TEMP_DIR_PATH}}/gitlab/override_values.yml"
+
+  rescue:
+    # YAML 파일 전송에 오류 발생 시, 임시 폴더 삭제
+    - name: "8.13.1.3.2. ***** ERROR OCCURED : Remove temporary diectory *****"
+      file:
+        path: "{{TEMP_DIR_PATH}}"
+        state: absent
+
+    # 오류 발생 알림
+    - name: "8.13.1.3.3. ***** ERROR OCCURED : GitLab Helm Chart Setting Failure *****"
+      fail:
+        msg: "Unexpected error occured when gitlab helm chart setting..."
+  become: true

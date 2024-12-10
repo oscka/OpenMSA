@@ -1,0 +1,21 @@
+---
+- name: 8.17.1.repo add redis
+  ansible.builtin.shell:
+    cmd: |
+      helm repo add bitnami https://charts.bitnami.com/bitnami
+  ignore_errors: yes
+
+- name: 8.17.1. repo update
+  ansible.builtin.shell:
+    cmd: |
+      helm repo update
+
+- name: 8.20.3. Install redis-cluster
+  ansible.builtin.shell:
+    cmd: |
+     helm install redis-cluster bitnami/redis \
+      --namespace redis \
+      --create-namespace \
+      --set nodeSelector.db=true \
+      --set password=admin1234 \
+      --set persistence.size=20Gi

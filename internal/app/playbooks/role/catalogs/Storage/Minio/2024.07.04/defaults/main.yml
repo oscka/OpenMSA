@@ -1,0 +1,5 @@
+---
+# defaults file for ansible-role-minio
+MINIO_DATA_DIR: /cnstudio/catalogs/minio/data
+MINIO_VERSION: 2024.07.04
+ 

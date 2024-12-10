@@ -1,0 +1,4 @@
+---
+
+- name: 8.14. Deploy jenkins
+  ansible.builtin.include_tasks: jenkins.yaml

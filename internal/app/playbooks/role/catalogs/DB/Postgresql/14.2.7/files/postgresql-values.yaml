@@ -1,0 +1,26 @@
+---
+global:
+  pgpool:
+    adminUsername: "admin"
+    adminPassword: "admin1234"
+postgresql:
+  replicaCount: 2
+  nodeSelector:
+    db: "true"
+  username: postgres
+  password: admin1234
+  database: my_database
+  repmgrUsername: repmgr
+  repmgrPassword: admin1234
+service:
+  type: NodePort
+  nodePorts:
+    postgresql: 30103
+pgpool:
+  nodeSelector:
+    db: "true"
+  adminUsername: admin
+  adminPassword: admin1234
+#persistence:
+#  accessModes:
+#    - ReadWriteOnce

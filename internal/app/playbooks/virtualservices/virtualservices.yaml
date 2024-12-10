@@ -1,0 +1,82 @@
+- name: Render and apply VirtualService templates
+  block:
+    - name: Render and apply NeuVector VirtualService
+      shell: |
+        kubectl apply -f - <<EOF
+        {{ lookup('template', '{{ playbook_dir }}/virtualservices/neuvector.yaml.j2') }}
+        EOF
+      when: DEPLOY_NEUVECTOR | default(false) | bool
+
+    - name: Render and apply Grafana VirtualService
+      shell: |
+        kubectl apply -f - <<EOF
+        {{ lookup('template', '{{ playbook_dir }}/virtualservices/grafana.yaml.j2') }}
+        EOF
+      when: DEPLOY_PROMETHEUS | default(false) | bool
+
+    - name: Render and apply Prometheus VirtualService
+      shell: |
+        kubectl apply -f - <<EOF
+        {{ lookup('template', '{{ playbook_dir }}/virtualservices/prometheus.yaml.j2') }}
+        EOF
+      when: DEPLOY_PROMETHEUS | default(false) | bool
+
+    - name: Render and apply OpenSearch Dashboard VirtualService
+      shell: |
+        kubectl apply -f - <<EOF
+        {{ lookup('template', '{{ playbook_dir }}/virtualservices/opensearch-dashboard.yaml.j2') }}
+        EOF
+      when: DEPLOY_OPENSEARCH | default(false) | bool
+
+    - name: Render and apply ArgoCD VirtualService
+      shell: |
+        kubectl apply -f - <<EOF
+        {{ lookup('template', '{{ playbook_dir }}/virtualservices/argocd.yaml.j2') }}
+        EOF
+      when: DEPLOY_ARGOCD | default(false) | bool
+
+    - name: Render and apply Keycloak VirtualService
+      shell: |
+        kubectl apply -f - <<EOF
+        {{ lookup('template', '{{ playbook_dir }}/virtualservices/keycloak.yaml.j2') }}
+        EOF
+      when: DEPLOY_KEYCLOAK | default(false) | bool
+
+    - name: Render and apply Longhorn VirtualService
+      shell: |
+        kubectl apply -f - <<EOF
+        {{ lookup('template', '{{ playbook_dir }}/virtualservices/longhorn.yaml.j2') }}
+        EOF
+      when: DEPLOY_LONGHORN | default(false) | bool
+
+    - name: Render and apply Rancher UI VirtualService
+      shell: |
+        kubectl apply -f - <<EOF
+        {{ lookup('template', '{{ playbook_dir }}/virtualservices/rancher-ui.yaml.j2') }}
+        EOF
+      when: DEPLOY_RANCHERUI | default(false) | bool
+
+    - name: Render and apply Jenkins VirtualService
+      shell: |
+        kubectl apply -f - <<EOF
+        {{ lookup('template', '{{ playbook_dir }}/virtualservices/jenkins.yaml.j2') }}
+        EOF
+      when: DEPLOY_JENKINS | default(false) | bool
+
+    - name: Render and apply Jaeger VirtualService
+      shell: |
+        kubectl apply -f - <<EOF
+        {{ lookup('template', '{{ playbook_dir }}/virtualservices/jaeger.yaml.j2') }}
+        EOF
+      when: DEPLOY_JAEGER | default(false) | bool
+
+    - name: Render and apply Gitlab VirtualService
+      shell: |
+        kubectl apply -f - <<EOF
+        {{ lookup('template', '{{ playbook_dir }}/virtualservices/gitlab.yaml.j2') }}
+        EOF
+      when: DEPLOY_GITLAB | default(false) | bool
+
+  when: DEPLOY_ISTIO | default(false) | bool
+  tags:
+    - virtualservices

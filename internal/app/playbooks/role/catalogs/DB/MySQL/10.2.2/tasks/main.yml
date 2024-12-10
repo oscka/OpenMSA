@@ -1,0 +1,2 @@
+- name: 8.16. Download and install mysql {{ mysql_version }}
+  ansible.builtin.include_tasks: mysql.yml

@@ -1,0 +1,51 @@
+---
+
+- name: Get nodes with storage=true label
+  ansible.builtin.shell:
+    cmd: kubectl get nodes -l storage=true -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'
+  register: storage_nodes
+
+- name: 8.2.0 Add Longhorn helm repo
+  ansible.builtin.shell:
+    cmd: helm repo add longhorn https://charts.longhorn.io
+
+
+- name: 8.2.0 Add Longhorn helm repo
+  ansible.builtin.shell:
+    cmd: helm repo update
+
+- name: 8.2.0 Add Longhorn default disk label to storage nodes
+  ansible.builtin.shell:
+    cmd: kubectl label nodes {{ item }} node.longhorn.io/create-default-disk=true --overwrite
+  loop: "{{ storage_nodes.stdout_lines }}"
+  when: storage_nodes.stdout_lines | length > 0
+
+- name: 8.2.3. Install Longhorn
+  ansible.builtin.shell:
+    cmd: |
+     helm upgrade -i longhorn  longhorn/longhorn --version 1.6.1 \
+        --namespace longhorn-system \
+        --create-namespace \
+        --version={{ LONGHORN_VERSION }} \
+        --set ingress.enabled=true \
+        --set ingress.host="longhorn.{{ DOMAIN_NAME }}" \
+        --set service.ui.type=NodePort \
+        --set service.ui.nodePort={{ LONGHORN_NODEPORT }} \
+        --set defaultSettings.createDefaultDiskLabeledNodes=true 
+
+- name: 8.2.4. Wait for Longhorn pods to be ready
+  ansible.builtin.shell:
+    cmd: kubectl get pods -n longhorn-system -o jsonpath='{.items[*].status.containerStatuses[*].ready}' | grep -v false
+  register: longhorn_ready
+  until: longhorn_ready.rc == 0
+  retries: 45
+  delay: 10
+
+- name: 8.2.5. Verify Longhorn deployment
+  ansible.builtin.shell:
+    cmd: kubectl get deployment -n longhorn-system longhorn-ui -o jsonpath='{.status.readyReplicas}'
+  register: longhorn_ui_ready
+  until: longhorn_ui_ready.stdout | int > 0
+  retries: 12
+  delay: 10
+

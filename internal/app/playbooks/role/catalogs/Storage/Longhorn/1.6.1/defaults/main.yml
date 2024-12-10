@@ -1,0 +1,21 @@
+---
+# defaults file for ansible-role-rancher
+LONGHORN_VERSION: 1.6.1
+
+DEPLOY_SAMPLE_POD: TRUE
+
+LONGHORN_DOMAIN: "osckorea.com"
+
+RKE2_CONTROL_NODE_NAME: "control"
+
+LONGHORN_REPO_URL: "http://10.71.163.68:8081/repository/helm-hosted/"
+
+LONGHORN_REGISTRY_URL: "10.71.163.68:5000"
+
+LONGHORN_USER_NAME: "admin"
+
+LONGHORN_PASSWORD: "admin12341234"
+
+LONGHORN_NODEPORT: "30010"
+
+

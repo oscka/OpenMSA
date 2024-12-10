@@ -1,0 +1,43 @@
+# PV & Secret 생성
+- name: "8.13.2.1. [ STEP 3 ] # 1. ===== Create PV & Secret ====="
+  block:
+    # 배포 대상 Namespace 존재 확인
+    - name: "8.13.2.1.1. Check target namespace already exist"
+      shell: kubectl get ns {{GITLAB_METADATA_NAMESPACE | default(GITLAB_DEFAULT_METADATA_NAMESPACE, true)}} --no-headers -o custom-columns=":status.phase"
+      register: gitlab_deploy_namespace_status
+      ignore_errors: true
+
+    # 대상 Namespace가 존재 및 활성 상태의 경우, 로그 출력
+    - debug:
+        msg: "GitLab install target namespace already exist..."
+      when: gitlab_deploy_namespace_status.stdout == 'Active'
+
+    # 대상 Namespace가 존재하지 않는 경우, Namespace 생성
+    - name: "8.13.2.1.2. Create target Namespace (Namespace Not Exist)"
+      shell: kubectl create ns {{GITLAB_METADATA_NAMESPACE | default(GITLAB_DEFAULT_METADATA_NAMESPACE, true)}}
+      when: gitlab_deploy_namespace_status.stdout != 'Active'
+
+  rescue:
+    # 검색 대상 Namespace를 찾을 수 없는 경우, Namespace 생성
+    - name: "8.13.2.1.3. Create target Namespace (Namespace Not Found)"
+      shell: kubectl create ns {{GITLAB_METADATA_NAMESPACE | default(GITLAB_DEFAULT_METADATA_NAMESPACE, true)}}
+
+#- name: "[ STEP 3 ] # 2. ===== if istio install, Create VirtualService  ====="
+#  shell: kubectl apply -f {{ LOCAL_PATH.BASE }}/virtualservices/gitlab-vs.yaml
+#  when:  DEPLOY_ISTIO 
+  
+- name: "8.13.2.2. ===== Install gitlab helm chart with override values ====="
+  shell:
+    chdir: "{{TEMP_DIR_PATH}}/gitlab"
+    cmd: |
+      helm install {{GITLAB_METADATA_RELEASE_LABEL | default(GITLAB_DEFAULT_METADATA_RELEASE_LABEL,true)}} \
+        -f override_values.yml . \
+        -n {{GITLAB_METADATA_NAMESPACE | default(GITLAB_DEFAULT_METADATA_NAMESPACE,true)}}
+
+# 임시 폴더 삭제 (정리)
+- name: "8.13.2.3. ===== Remove temporary directory ====="
+  become: true
+  shell: rm -rf {{TEMP_DIR_PATH}}
+  # file:
+  #   path: "{{TEMP_DIR_PATH}}"
+  #   state: absent

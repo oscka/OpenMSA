@@ -1,0 +1,66 @@
+---
+- name: 8.5.1. Copy MinIO binaries 
+  ansible.builtin.copy:
+    src: "files/minio"
+    dest: "/usr/local/bin/minio"
+    mode: '0755'
+
+- name: 8.5.2. Create MinIO data directory
+  ansible.builtin.file:
+    path: "{{ MINIO_DATA_DIR }}"
+    state: directory
+    mode: '0755'
+
+- name: 8.5.3. Create MinIO systemd service file
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/minio.service
+    content: |
+      [Unit]
+      Description=MinIO
+      Documentation=https://docs.min.io
+      Wants=network-online.target
+      After=network-online.target
+
+      [Service]
+      User=root
+      Group=root
+      EnvironmentFile=/etc/default/minio
+      ExecStart=/usr/local/bin/minio server {{ MINIO_DATA_DIR }} --console-address ":9001"
+      Restart=always
+      LimitNOFILE=65536
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: 8.5.4. Create MinIO environment file
+  ansible.builtin.copy:
+    dest: /etc/default/minio
+    content: |
+      MINIO_ROOT_USER=admin
+      MINIO_ROOT_PASSWORD=admin1234
+
+- name: 8.5.5. Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: yes
+
+- name: 8.5.6. Enable and start MinIO service
+  ansible.builtin.systemd:
+    name: minio
+    enabled: yes
+    state: started
+
+- name: 8.5.7. Copy MinIO Client binaries 
+  ansible.builtin.copy:
+    src: "files/mc"
+    dest: "/usr/local/bin/mc"
+    mode: '0755'
+
+- name: 8.5.8. Set alias for MinIO server
+  ansible.builtin.shell:
+    cmd: /usr/local/bin/mc alias set backup http://127.0.0.1:9000 admin admin1234
+  register: mc_alias_output
+
+- name: 8.5.9. Create backup bucket 
+  ansible.builtin.shell:
+    cmd: /usr/local/bin/mc mb backup/backup
+  ignore_errors: yes

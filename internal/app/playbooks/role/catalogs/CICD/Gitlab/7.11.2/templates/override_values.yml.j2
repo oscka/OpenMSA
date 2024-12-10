@@ -1,0 +1,58 @@
+#moon 
+global:
+  image: 
+      registry: {{ GITLAB_HELM_REPOSITORY_URL }} 
+  edition: ce
+  hosts: 
+    domain: {{GITLAB_SUFFIX_DOMAIN}}
+    externalIP: 10.71.163.68
+  ingress:
+    configureCertmanager: false
+
+certmanager-issuer:
+  email: {{GITLAB_HELM_VALUES.CERTMANAGER_ISSUER.EMAIL}}
+  
+certmanager:
+  install: false
+
+gitlab:
+  gitaly:
+    nodeSelector:
+      {{GITLAB_PERSISTENT_GITALY_POD_NODE_SELECTOR_KEY}}: {{GITLAB_PERSISTENT_GITALY_POD_NODE_SELECTOR_VALUE}}
+
+  kas:
+    minReplicas: 1
+
+  sidekiq:
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1G
+
+  webservice:
+    minReplicas: 1
+    resources:
+      requests:
+        cpu: 200m
+
+gitlab-runner:
+  install: {{ DEPLOY_GITLAB_RUNNER | default(false) }}
+  certsSecretName: {{GITLAB_METADATA_RELEASE_LABEL}}-gitlab-runner-certs
+  hostAliases:
+  - ip: {{ ALL_Servers[0].ip }}
+    hostnames:
+    - "{{GITLAB_RUNNER_GITLAB_WEBSERVICE_DOMAIN}}"
+  runners:
+    secret: "gitlab-gitlab-runner-certs"
+    name: cnstudio
+    tags: cnstudio-ci
+    config: |
+      [[runners]]
+        [runners.kubernetes]
+          image = "docker:26.1.3"
+  replicas: {{GITLAB_RUNNER_REPLICASE}}
+
+
+
+
+

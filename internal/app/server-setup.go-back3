@@ -1,0 +1,243 @@
+package app
+
+import (
+    "bytes"
+    "fmt"
+    "os"
+    "os/exec"
+    "path/filepath"
+    "go-project/internal/ui"
+    "golang.org/x/term"
+    "syscall"
+)
+
+type SSHKeyPair struct {
+    PrivateKey string
+    PublicKey  string
+}
+
+
+
+// SetupServers는 모든 서버에 대한 초기 설정을 수행
+func (app *App) SetupServers() error {
+    ui.PrintMenuTitle("Setting up servers...")
+
+    // 비밀번호 입력 받기
+    fmt.Print("Enter server password: ")
+    password, err := term.ReadPassword(int(syscall.Stdin))
+    if err != nil {
+        return fmt.Errorf("failed to read password: %w", err)
+    }
+    fmt.Println()
+
+    // SSH 키 생성
+    if err := generateSSHKey(); err != nil {
+        return fmt.Errorf("failed to generate SSH key: %w", err)
+    }
+
+    // 설정 수행
+    for _, server := range app.ServerConfig.ALLServers {
+        ui.Yellow.Printf("Setting up server: %s (%s)\n", server.Name, server.IP)
+
+        // SSH 키 복사 (StrictHostKeyChecking=no 옵션 추가)
+        copyCmd := exec.Command("ssh-copy-id", "-o", "StrictHostKeyChecking=no", fmt.Sprintf("root@%s", server.IP))
+        copyCmd.Stdin = os.Stdin
+        copyCmd.Stdout = os.Stdout
+        copyCmd.Stderr = os.Stderr
+        if err := copyCmd.Run(); err != nil {
+            ui.Red.Printf("Error copying SSH key to %s: %v\n", server.Name, err)
+            continue
+        }
+
+        // 호스트네임 설정
+        hostCmd := exec.Command("ssh", fmt.Sprintf("root@%s", server.IP), "hostnamectl", "set-hostname", server.Name)
+        if err := hostCmd.Run(); err != nil {
+            ui.Red.Printf("Error setting hostname on %s: %v\n", server.Name, err)
+            continue
+        }
+
+        // sudoers 설정
+        sudoersContent := fmt.Sprintf("\n# Created by CN Studio\n%s ALL=(ALL) NOPASSWD: ALL\n", os.Getenv("USER"))
+        tmpFile := "/tmp/sudoers.tmp"
+        if err := os.WriteFile(tmpFile, []byte(sudoersContent), 0644); err != nil {
+            ui.Red.Printf("Error creating sudoers file for %s: %v\n", server.Name, err)
+            continue
+        }
+
+        scpCmd := exec.Command("scp", tmpFile, fmt.Sprintf("root@%s:/etc/sudoers.d/%s", server.IP, os.Getenv("USER")))
+        if err := scpCmd.Run(); err != nil {
+            os.Remove(tmpFile)
+            ui.Red.Printf("Error copying sudoers file to %s: %v\n", server.Name, err)
+            continue
+        }
+        os.Remove(tmpFile)
+
+        chmodCmd := exec.Command("ssh", fmt.Sprintf("root@%s", server.IP), "chmod", "0440", fmt.Sprintf("/etc/sudoers.d/%s", os.Getenv("USER")))
+        if err := chmodCmd.Run(); err != nil {
+            ui.Red.Printf("Error setting permissions on %s: %v\n", server.Name, err)
+            continue
+        }
+
+        ui.Green.Printf("Successfully set up server: %s\n", server.Name)
+    }
+
+    return nil
+}
+// getServerCredentials는 사용자로부터 비밀번호를 입력받음
+func getServerCredentials() (*ServerCredentials, error) {
+    fmt.Print("Enter server password: ")
+    bytePassword, err := term.ReadPassword(int(syscall.Stdin))
+    if err != nil {
+        return nil, fmt.Errorf("failed to read password: %w", err)
+    }
+    fmt.Println() // 새 줄 추가
+
+    return &ServerCredentials{
+        Password: string(bytePassword),
+    }, nil
+}
+
+
+// SSH 키 생성
+func generateSSHKey() error {
+    keyPath := filepath.Join(os.Getenv("HOME"), ".ssh", "id_rsa")
+    if _, err := os.Stat(keyPath); err == nil {
+        return nil // 키가 이미 존재하면 스킵
+    }
+
+    cmd := exec.Command("ssh-keygen", "-t", "rsa", "-b", "4096", "-f", keyPath, "-N", "")
+    cmd.Stdin = os.Stdin
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
+    return cmd.Run()
+}
+
+
+// setupAnsibleHosts는 Ansible hosts 파일을 설정
+func setupAnsibleHosts(servers []Server) error {
+    // Ansible hosts 파일 템플릿
+    hostsTemplate := `[all:vars]
+host_key_checking = False
+
+[servers]
+%s
+`
+    var serverEntries string
+    for _, server := range servers {
+        serverEntries += fmt.Sprintf("%s ansible_host=%s ansible_user=root\n", server.Name, server.IP)
+    }
+
+    hostsContent := fmt.Sprintf(hostsTemplate, serverEntries)
+
+    // Ansible hosts 디렉토리 생성
+    if err := os.MkdirAll("/etc/ansible", 0755); err != nil {
+        return fmt.Errorf("failed to create ansible directory: %w", err)
+    }
+
+    // hosts 파일 작성
+    if err := os.WriteFile("/etc/ansible/hosts", []byte(hostsContent), 0644); err != nil {
+        return fmt.Errorf("failed to write ansible hosts file: %w", err)
+    }
+
+    return nil
+}
+
+func (app *App) setupServer(server Server, keyPair *SSHKeyPair, creds *ServerCredentials) error {
+    // SSHPASS를 사용하여 SSH 키 복사
+    if err := copySSHKeyWithPassword(server.IP, keyPair.PublicKey, creds.Password); err != nil {
+        return fmt.Errorf("failed to copy SSH key: %w", err)
+    }
+
+    // 호스트네임 설정
+    if err := setHostname(server); err != nil {
+        return fmt.Errorf("failed to set hostname: %w", err)
+    }
+
+    // Sudoers 설정
+    if err := setupSudoers(server); err != nil {
+        return fmt.Errorf("failed to setup sudoers: %w", err)
+    }
+
+    return nil
+}
+
+// copySSHKeyWithPassword는 비밀번호를 사용하여 SSH 키를 복사
+func copySSHKeyWithPassword(serverIP, publicKey, password string) error {
+    cmd := exec.Command("sshpass", "-p", password, "ssh-copy-id", "-o", "StrictHostKeyChecking=no", 
+                       "-i", "~/.ssh/id_rsa.pub", fmt.Sprintf("root@%s", serverIP))
+    var stderr bytes.Buffer
+    cmd.Stderr = &stderr
+
+    if err := cmd.Run(); err != nil {
+        return fmt.Errorf("ssh-copy-id failed: %v, stderr: %s", err, stderr.String())
+    }
+
+    return nil
+}
+
+func setHostname(server Server) error {
+    cmd := exec.Command("ssh", "-o", "StrictHostKeyChecking=no", 
+                       fmt.Sprintf("root@%s", server.IP), "hostnamectl", "set-hostname", server.Name)
+    if err := cmd.Run(); err != nil {
+        return fmt.Errorf("failed to set hostname: %w", err)
+    }
+
+    return nil
+}
+
+func setupSudoers(server Server) error {
+    sudoersTemplate := `
+# Created by CN Studio
+%s ALL=(ALL) NOPASSWD: ALL
+`
+    currentUser := os.Getenv("USER")
+    sudoersContent := fmt.Sprintf(sudoersTemplate, currentUser)
+
+    tmpFile := "/tmp/sudoers.tmp"
+    if err := os.WriteFile(tmpFile, []byte(sudoersContent), 0644); err != nil {
+        return fmt.Errorf("failed to create temporary sudoers file: %w", err)
+    }
+    defer os.Remove(tmpFile)
+
+    scpCmd := exec.Command("scp", "-o", "StrictHostKeyChecking=no", 
+                          tmpFile, fmt.Sprintf("root@%s:/etc/sudoers.d/%s", server.IP, currentUser))
+    if err := scpCmd.Run(); err != nil {
+        return fmt.Errorf("failed to copy sudoers file: %w", err)
+    }
+
+    chmodCmd := exec.Command("ssh", "-o", "StrictHostKeyChecking=no", 
+                            fmt.Sprintf("root@%s", server.IP), "chmod", "0440", 
+                            fmt.Sprintf("/etc/sudoers.d/%s", currentUser))
+    if err := chmodCmd.Run(); err != nil {
+        return fmt.Errorf("failed to set permissions on sudoers file: %w", err)
+    }
+
+    return nil
+}
+
+func (app *App) InitServerSetup() {
+    ui.Clear()
+    ui.PrintLogo()
+    ui.PrintMenuTitle("Server Setup")
+
+    options := []string{
+        "1. Setup All Servers",
+        "2. Back to Server Management",
+    }
+
+    choice := ui.ArrowSelect(options)
+    ui.Clear()
+
+    switch choice {
+    case 0:
+        if err := app.SetupServers(); err != nil {
+            ui.Red.Printf("Error setting up servers: %v\n", err)
+        } else {
+            ui.Green.Println("Successfully completed server setup!")
+        }
+        fmt.Print("\nPress Enter to continue...")
+        fmt.Scanln()
+    case 1:
+        return
+    }
+}

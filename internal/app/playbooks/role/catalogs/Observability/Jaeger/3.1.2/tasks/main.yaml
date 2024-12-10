@@ -1,0 +1,4 @@
+- name: 8.4-1. Install jaeger helm chart
+  include_tasks: jaeger.yaml
+  tags:
+    - catalog_jaeger

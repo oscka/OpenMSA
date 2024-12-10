@@ -1,0 +1,4 @@
+---
+NEXUS_REGISTRY_URL: 10.71.163.68:5000
+NEUVECTOR_REPO_URL: http://10.71.163.68:8081/repository/helm-proxy-dspace-host/
+NEUVECTOR_DOMAIN: neuvector.kt.com

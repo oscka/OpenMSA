@@ -1,0 +1,41 @@
+ALL_Servers:
+  - name: rke2-control-node01
+    ip: 192.168.41.171
+    roles:
+      - control
+    labels:
+      - control=true
+  - name: rke2-master-node01
+    ip: 192.168.41.172
+    roles:
+      - control-plane
+    labels:
+      - master=true
+  - name: rke2-master-node02
+    ip: 192.168.41.173
+    roles:
+      - control-plane
+    labels:
+      - master=true
+  - name: rke2-master-node03
+    ip: 192.168.41.174
+    roles:
+      - control-plane
+    labels:
+      - master=true
+  - name: rke2-worker-node01
+    ip: 192.168.41.175
+    roles:
+      - worker
+    labels:
+      - worker=true
+      - route=true
+  - name: rke2-worker-node02
+    ip: 192.168.41.176
+    roles:
+      - worker
+    labels:
+      - worker=true
+      - route=true
+      - storage=true
+

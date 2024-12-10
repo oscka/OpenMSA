@@ -1,0 +1,84 @@
+######### 내부 Nexus Repo #########
+HELM_PORT: "8081"
+REGISTRY_PORT: "5000"
+REGISTRY_URL: "{{ ALL_Servers | selectattr('roles', 'contains', 'control') | map(attribute='ip') | first }}"
+REGISTRY_ID: "admin"
+REGISTRY_PASSWD: "admin12341234"
+DOCKER_CONFIG: /etc/docker/daemon.json
+HELM_REPO_URL: "http://{{REGISTRY_URL}}:8081/repository/helm-proxy-dspace-host"
+DOMAIN_NAME: "cnstudio.com"
+HELM_REPO_NAME: "cnstudio"
+
+## variables for 08_configure_registry
+REGISTRY_CONFIG:
+# Docker
+- DIR: /etc/docker
+  FILE: daemon.json
+  CONTENT: |
+    {
+      "registry-mirrors": ["http://{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}"],
+      "insecure-registries": ["{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}"]
+    }
+- DIR: /etc/rancher/rke2
+  # RKE2
+  FILE: registries.yaml
+  CONTENT: |
+    mirrors:
+      docker.io:
+        endpoint:
+          - "http://{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}"
+      quay.io:
+        endpoint:
+          - "http://{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}"
+      cr.fluentbit.io:
+        endpoint:
+          - "http://{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}"
+      ghcr.io:
+        endpoint:
+          - "http://{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}"
+      public.ecr.aws:
+        endpoint:
+          - "http://{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}"
+      registry.k8s.io:
+        endpoint:
+          - "http://{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}"
+      registry.gitlab.com:
+        endpoint:
+          - "http://{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}"
+      "{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}":
+        endpoint:
+          - "http://{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}"
+    configs:
+      "{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}":
+        auth:
+          username: "{{ REGISTRY_ID }}"
+          password: "{{ REGISTRY_PASSWD }}"
+        tls:
+          insecure_skip_verify: true
+- DIR: /etc/containerd
+  # containerd
+  FILE: config.toml
+  CONTENT: |
+    disabled_plugins = []
+    [plugins."io.containerd.grpc.v1.cri".registry]
+      [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+        [plugins."io.containerd.grpc.v1.cri".registry.mirrors."docker.io"]
+          endpoint = ["http://{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}"]
+        [plugins."io.containerd.grpc.v1.cri".registry.mirrors."quay.io"]
+          endpoint = ["http://{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}"]
+        [plugins."io.containerd.grpc.v1.cri".registry.mirrors."{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}"]
+          endpoint = ["http://{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}"]
+      [plugins."io.containerd.grpc.v1.cri".registry.configs]
+        [plugins."io.containerd.grpc.v1.cri".registry.configs."{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}".auth]
+          username = "{{ REGISTRY_ID }}"
+          password = "{{ REGISTRY_PASSWD }}"
+        [plugins."io.containerd.grpc.v1.cri".registry.configs."{{ REGISTRY_URL }}:{{ REGISTRY_PORT }}".tls]
+          insecure_skip_verify = true
+CONFIG_TOOL_FILES_M:
+- {SRC: "{{ LOCAL_PATH.BASE }}/packages/k9s/k9s", DEST: k9s} # k9s
+- {SRC: "{{ LOCAL_PATH.BASE }}/packages/default/jq-linux-amd64", DEST: jq} # jq
+- {SRC: "{{ LOCAL_PATH.BASE }}/packages/helm/linux-amd64/helm", DEST: helm} # helm
+CONFIG_TOOL_FILES_W:
+- {SRC: "{{ LOCAL_PATH.BASE }}/packages/k9s/k9s", DEST: k9s} # k9s
+- {SRC: "{{ LOCAL_PATH.BASE }}/packages/default/jq-linux-amd64", DEST: jq} # jq
+

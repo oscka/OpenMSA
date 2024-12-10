@@ -1,0 +1,4 @@
+---
+# tasks file for rke2-cluster
+- name: 2. Install rpm for control nodes
+  include_tasks: node.yaml

@@ -1,0 +1,112 @@
+---
+# - name: "[필수사항 체크] Ingress Controller 설치 여부 체크"
+#   shell: | 
+#     kubectl get pod -n {{GLB_INGRESS_NAMESPACE}} | grep {{DEMO_API_INGRESS_CLASS}} |wc -l
+#   register: output
+#   failed_when:  "output.stdout|float < 1"
+#   tags:
+#     - demo-api
+#     - demo-project
+#     - demo-ex
+#     - demo-api-argocd
+#     - demo-project-argocd
+#     - demo-ex-argocd
+
+- name: 8.9.1. Create a api namespace
+  shell: |
+    kubectl create ns {{DEMO_API_NAMESPACE}}
+  tags: 
+    - demo-api
+    - demo-project
+    - demo-ex
+    - demo-api-argocd
+    - demo-project-argocd
+    - demo-ex-argocd
+
+
+- name: 8.9.2. demo-api 배포 
+  shell: |
+    kubectl apply -f {{ role_path }}/files/demo-api-deploy.yaml
+  register: output
+  tags: 
+    - demo-api
+    - demo-project
+    - demo-ex
+    - demo-api-argocd
+
+#--[output]--
+- debug:
+    var: output
+  tags: 
+    - demo-api
+    - demo-project
+    - demo-ex
+    
+
+- name: 8.9.3. demo-ops-argocd-repo-add 
+  shell: |
+    yes | /usr/local/bin/argocd login --insecure {{ARGOCD_HOST}}  --username admin  --password {{ARGOCD_NEW_PASSWORD}} 
+    yes | /usr/local/bin/argocd repo add {{DEMO_OPS_REPO_URL}} --username {{DEMO_OPS_GIT_USER}} --password {{DEMO_OPS_GIT_SECRET}} --insecure-skip-server-verification
+  register: output
+  tags: 
+    - demo-ops-argocd
+    - demo-api-argocd
+    - demo-project-argocd
+    - demo-ex-argocd
+  when: DEMO_OPS_REPO_PRIVATE == 'Y'
+
+#--[output]--
+- debug:
+    var: output
+  tags: 
+    - demo-ops-argocd
+    - demo-api-argocd
+    - demo-project-argocd
+    - demo-ex-argocd
+
+
+- name: 8.9.4. demo-api-argocd-application 배포 
+  shell: |
+    kubectl apply -f {{ role_path }}/files/demo-api-argocd-apps.yaml
+  register: output
+  tags: 
+    - demo-api-argocd
+    - demo-project-argocd
+    - demo-ex-argocd
+
+#--[output]--
+- debug:
+    var: output
+  tags: 
+    - demo-api-argocd
+    - demo-project-argocd
+    - demo-ex-argocd
+
+#### demo-api ingress 배포
+- name: 8.9.5. demo-api ingress 배포 
+  shell: |
+    kubectl apply -f {{ role_path }}/files/demo-api-ingress.yaml
+  register: output
+  tags: 
+    - demo-api-ing
+    - demo-api
+    - demo-project
+    - demo-ex
+    - demo-api-argocd
+    - demo-project-argocd
+    - demo-ex-argocd
+#--[output]--
+- debug:
+    var: output
+  tags: 
+    - demo-api-ing
+    - demo-api
+    - demo-project
+    - demo-ex
+    - demo-api-argocd
+    - demo-project-argocd
+    - demo-ex-argocd
+
+
+
+    

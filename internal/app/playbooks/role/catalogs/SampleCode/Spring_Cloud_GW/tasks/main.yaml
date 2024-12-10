@@ -1,0 +1,3 @@
+---
+- name: 8.10. Import  gateway-api
+  import_tasks: gateway-api.yml

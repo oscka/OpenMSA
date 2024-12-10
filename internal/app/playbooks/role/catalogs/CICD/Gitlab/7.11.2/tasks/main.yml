@@ -1,0 +1,44 @@
+- name: "8.13.1. GitLab Chart Setting"
+  delegate_to: localhost
+  run_once: true
+  import_tasks: gitlab.setting.yml
+  poll: 10
+  tags:
+    - gitlab
+    - setting
+
+
+- name: "8.13.2. GitLab Chart Deployment"
+  delegate_to: localhost
+  import_tasks: gitlab.deploy.yml
+  run_once: true
+  poll: 10
+  tags:
+    - gitlab
+
+- name: "8.13.3. Initialize Setting GitLab"
+  delegate_to: localhost
+  run_once: true
+  import_tasks: gitlab.config.yml
+  poll: 10
+  tags:
+    - gitlab
+    - config
+
+- name: "8.13.4. Config Setting GitLab"
+  delegate_to: localhost
+  run_once: true
+  import_tasks: gitlab.init.yml
+  poll: 10
+  tags:
+    - gitlab
+    - initialize
+
+- name: "8.13.5. GitLab Uninstall"
+  delegate_to: localhost
+  run_once: true
+  import_tasks: gitlab.uninstall.yml
+  poll: 10
+  tags:
+    - uninstall-gitlab
+  when: "'uninstall-gitlab' in ansible_run_tags"

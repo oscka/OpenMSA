@@ -1,0 +1,19 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: jenkins
+  namespace: jenkins  # Jenkins가 설치된 네임스페이스로 변경
+spec:
+  gateways:
+    - istio-system/istio-gateway
+  hosts:
+    - "jenkins.{{DOMAIN_NAME}}"  # Jenkins에 접근할 도메인 이름
+  http:
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: jenkins  # Jenkins 서비스의 이름
+            port:
+              number: 8080  # Jenkins 서비스의 포트

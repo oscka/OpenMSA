@@ -1,0 +1,60 @@
+- name: 8.17.1.repo add mysql
+  ansible.builtin.shell:
+    cmd: |
+      helm repo add bitnami https://charts.bitnami.com/bitnami
+  ignore_errors: yes
+
+- name: 8.17.1. repo update mysql
+  ansible.builtin.shell:
+    cmd: |
+      helm repo update
+
+- name: 8.16.3. Install mysql
+  ansible.builtin.shell:
+    cmd: |
+     helm install mysql bitnami/mysql \
+      --namespace mysql \
+      --create-namespace \
+      --set nodeSelector.db=true \
+      -f {{ role_path }}/files/mysql-values.yaml
+  tags:
+   - db-mysql
+
+- name: 8.16.4. Wait for MySQL pods to be ready
+  ansible.builtin.shell:
+    cmd: kubectl get pods -n mysql -l app.kubernetes.io/name=mysql -o jsonpath='{.items[*].status.containerStatuses[*].ready}' | grep -v false
+  register: mysql_ready
+  until: mysql_ready.rc == 0
+  retries: 30
+  delay: 10
+  tags:
+   - db-mysql
+
+- name: 8.16.5. Verify MySQL is accepting connections
+  ansible.builtin.shell:
+    cmd: |
+      kubectl exec -n mysql mysql-primary-0 -- mysqladmin ping -u root -padmin1234 --silent
+  register: mysql_ping
+  until: mysql_ping.rc == 0
+  retries: 12
+  delay: 10
+  tags:
+   - db-mysql
+
+- name: 8.16.6. Make a sql file
+  ansible.builtin.shell:
+    cmd: |
+      /usr/local/bin/kubectl exec -n mysql mysql-primary-0 -- bash -c "echo 'create table test (t1 int, t2 varchar(20), primary key(t1));
+      insert into test values (1, \"test1\");
+      insert into test values (2, \"test2\");' > /tmp/test.sql";
+  tags:
+   - db-mysql
+   - make-sqlfile
+
+- name: 8.16.7. Create table
+  ansible.builtin.shell:
+    cmd: |
+      /usr/local/bin/kubectl exec -n mysql mysql-primary-0 -- bash -c "mysql -u root -p\admin1234 my_database < /tmp/test.sql"
+  tags:
+   - db-mysql
+   - make-sqlfile

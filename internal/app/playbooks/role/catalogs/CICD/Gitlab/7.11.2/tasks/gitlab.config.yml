@@ -1,0 +1,99 @@
+#  GitLab Runner 등록 CA 인증서 Secret 생성(Self Signed)
+- name: "8.13.3.1. ===== Create custom certificates for runner ====="
+  block:
+    - name: "8.13.3.1.1. Extract gitlab wildcard tls"
+      shell: |
+        kubectl get secret gitlab-wildcard-tls \
+          -n {{GITLAB_METADATA_NAMESPACE | default(GITLAB_DEFAULT_METADATA_NAMESPACE,true)}} \
+          -o jsonpath='{.data.tls\.crt}' | base64 --decode 
+      register: gitlab_wildcard_tls_cert
+
+    - name: "8.13.3.1.2. Extract tls-credential"
+      shell: |
+        kubectl create -n gitlab secret tls tls-credential --key {{role_path}}/../../../Network/Istio/1.22.2/files/tls.key --cert {{role_path}}/../../../Network/Istio/1.22.2/files/tls.crt
+        kubectl get secret tls-credential \
+          -n gitlab \
+          -o jsonpath='{.data.tls\.crt}' | base64 --decode
+      register: gitlab_tls_istio
+
+    - name: "8.13.3.1.3. Find gitlab webservice cluster ip"
+      shell: |
+        kubectl get ingress gitlab-webservice-default \
+          -n {{GITLAB_METADATA_NAMESPACE | default(GITLAB_DEFAULT_METADATA_NAMESPACE,true)}} \
+          -o jsonpath='{.spec.rules[0].host}'
+      register: gitlab_webservice_domain
+
+    - name: "8.13.3.1.4. Combine both certificates"
+      shell: |
+        echo "{{ gitlab_wildcard_tls_cert.stdout }}" > /tmp/combined.crt
+        echo "{{ gitlab_tls_istio.stdout }}" >> /tmp/combined.crt
+      register: combined_cert
+    
+    - name: "8.13.3.1.5. Create secret for gitlab runner"
+      shell: |
+        kubectl create secret generic {{GITLAB_METADATA_RELEASE_LABEL}}-gitlab-runner-certs \
+          -n {{GITLAB_METADATA_NAMESPACE | default(GITLAB_DEFAULT_METADATA_NAMESPACE,true)}} \
+          --from-file=gitlab.cnstudio.com.crt=/tmp/combined.crt          
+  when: GITLAB_RUNNER_INSTALLATION
+
+
+
+# GitLab Webservice가 온전하게 시작할 때까지 대기
+- name: "8.13.3.2. ===== Wait for gitlab webservice running ====="
+  shell: |
+    kubectl get po \
+      -n {{GITLAB_METADATA_NAMESPACE | default(GITLAB_DEFAULT_METADATA_NAMESPACE,true)}} \
+      -lapp=webservice \
+      --no-headers -o custom-columns=":status.conditions[*].status,:status.phase" \
+      | awk '{$1=$1}1;'
+  register: gitlab_webservice_status
+  until: gitlab_webservice_status.stdout_lines | unique == ["True,True,True,True,True Running"]
+  retries: 100
+  delay: 10
+
+# GitLab 초기 설정
+- name: "8.13.3.3. ===== GitLab initial configuration with toolbox ====="
+  block:
+    # GitLab ToolBox Pod 명 추출
+    - name: "8.13.3.3.1. Get ToolBox Pod Name"
+      shell: |
+        kubectl get po \
+          -n {{GITLAB_METADATA_NAMESPACE | default(GITLAB_DEFAULT_METADATA_NAMESPACE,true)}} \
+          -lapp=toolbox \
+          --no-headers -o custom-columns=":metadata.name"
+      register: gitlab_toolbox_pod_name
+
+    # GitLab 초기 로그인 비밀번호 변경 (GitLab Rails)
+    - name: "8.13.3.3.2. Change root password"
+      shell: |
+        kubectl exec \
+          -n {{GITLAB_METADATA_NAMESPACE}} \
+          -it {{gitlab_toolbox_pod_name.stdout}} \
+          -- /srv/gitlab/bin/rails runner \
+          -e production \
+          "user = User.find_by_username('root'); user.password = '{{GITLAB_ACCOUNT_ROOT_PASSWORD}}'; user.password_confirmation = '{{GITLAB_ACCOUNT_ROOT_PASSWORD}}'; user.save!(validate: false)"
+
+    # 기존에 존재하는 초기 비밀번호 Secret 삭제
+    - name: "8.13.3.3.3 Delete initial root password secret"
+      shell: |
+        kubectl delete secret {{GITLAB_METADATA_RELEASE_LABEL}}-gitlab-initial-root-password -n {{GITLAB_METADATA_NAMESPACE}}
+
+    # Root 계정 Personal Access Token 생성
+    - name: "8.13.3.3.4. Generate personal access token"
+      shell: |
+        kubectl exec \
+          -n {{GITLAB_METADATA_NAMESPACE | default(GITLAB_DEFAULT_METADATA_NAMESPACE, true)}} \
+          -it {{gitlab_toolbox_pod_name.stdout}} \
+          -- /srv/gitlab/bin/rails runner \
+          -e production \
+          "token = User.find_by_username('root').personal_access_tokens.create(scopes: ['api','read_repository','write_repository','read_registry','write_registry'], name: '{{GITLAB_ACCOUNT_ROOT_ACCESS_TOKEN_NAME | default(GITLAB_DEFAULT_ACCOUNT_ROOT_ACCESS_TOKEN_NAME, true)}}', expires_at: 365.days.from_now); token.set_token('{{GITLAB_ACCOUNT_ROOT_ACCESS_TOKEN_VALUE | default(GITLAB_DEFAULT_ACCOUNT_ROOT_ACCESS_TOKEN_VALUE, true)}}'); token.save!"
+  rescue:
+    # 오류 발생 시, 로그 출력
+    - name: "8.13.3.3.5. ***** ERROR OCCURED : GitLab Configuration *****"
+      debug:
+        msg: "Unexpected error occured, Check initial configuration with gitlab rails console on toolbox pod"
+
+  always:
+    - name: "8.13.3.3.6. Sleep 5 sec. (optional)"
+      pause:
+        seconds: 5

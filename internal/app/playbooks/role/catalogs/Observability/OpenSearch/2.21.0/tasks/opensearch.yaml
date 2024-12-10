@@ -1,0 +1,45 @@
+
+- name: 8.17.1.repo add opensearch
+  ansible.builtin.shell:
+    cmd: |
+      helm repo add opensearch-project-helm-charts https://opensearch-project.github.io/helm-charts
+  ignore_errors: yes
+
+- name: 8.17.1. repo update postgresql
+  ansible.builtin.shell:
+    cmd: |
+      helm repo update
+
+- name: 8.4.2. Install opensearch helm chart
+  ansible.builtin.shell:
+    cmd: |
+      helm upgrade -i opensearch opensearch-project-helm-charts/opensearch \
+      --namespace logging --create-namespace \
+      -f {{ role_path }}/files/opensearch_values.yaml
+  tags:
+    - catalog_opensearch
+
+- name: 8.4.3. Install opensearch dashboard helm chart
+  ansible.builtin.shell:
+    cmd: |
+      helm upgrade -i opensearch-dashboards {{ playbook_dir }}/files/opensearch-dashboards-21.2.2.tgz \
+      --namespace logging \
+      --set opensearchHosts="https://opensearch-cluster-master.logging.svc.cluster.local:9200" \
+      --set ingress.enabled=true \
+      --set ingress.hosts[0].host="opensearch-dashboards.cnstudio.kt.com" \
+      --set ingress.hosts[0].paths[0].path="/" \
+      --set ingress.hosts[0].paths[0].pathType="ImplementationSpecific" \
+      --set ingress.hosts[0].paths[0].backend.serviceName="" \
+      --set ingress.hosts[0].paths[0].backend.servicePort=""
+  tags:
+    - catalog_opensearch
+
+- name: 8.4.4. Install fluent-bit helm chart
+  ansible.builtin.shell:
+    cmd: |
+      helm upgrade-i fluent-bit {{ playbook_dir }}/files/fluentbit-21.2.2.tgz \
+      --namespace logging \
+      -f {{ role_path }}/files/fluent-bit_values.yaml
+  tags:
+    - catalog_opensearch     
+

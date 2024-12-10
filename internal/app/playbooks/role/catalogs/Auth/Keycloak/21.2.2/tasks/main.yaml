@@ -1,0 +1,11 @@
+---
+
+# tasks file for k8s-app-role
+# - name: Include OS-specific variables.
+#   include_vars: "{{ ansible_distribution }}.yml"
+#   tags: always
+
+################ pre work ###########
+
+- name: 8.8. Import keycloak
+  import_tasks: keycloak.yaml

@@ -1,0 +1,8 @@
+---
+########## hosts info #################
+HOST_IP: "{{ansible_host}}"
+
+LOCAL_USER_HOME: "/home/ssm-user/RESOURC"
+
+############ keycloak ##############
+KEYCLOAK_HOST: "keycloak.cnstudio.com"

@@ -1,0 +1,20 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: gitlab
+  namespace: gitlab  # GitLab이 배포된 네임스페이스로 변경
+spec:
+  gateways:
+  - istio-system/istio-gateway  # 사용 중인 Istio Gateway 네임스페이스와 이름으로 변경
+  hosts:
+  - "gitlab.{{ DOMAIN_NAME }}"  # GitLab에 접근할 도메인 이름
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: gitlab-webservice-default  # GitLab 웹 서비스의 Kubernetes 서비스 이름
+        port:
+          number: 8181  # GitLab 웹 서비스의 포트 번호
+

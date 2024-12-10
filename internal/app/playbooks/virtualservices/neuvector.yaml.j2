@@ -1,0 +1,57 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: neuvector-vs
+  namespace: neuvector
+spec:
+  hosts:
+  - "neuvector.{{ DOMAIN_NAME }}"
+  gateways:
+  - neuvector/istio-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: neuvector-service-webui
+        port:
+          number: 8443
+
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: neuvector-gateway
+  namespace: neuvector
+spec:
+  selector:
+    istio: ingress
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "neuvector.{{ DOMAIN_NAME }}"
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    tls:
+      mode: PASSTHROUGH
+    hosts:
+    - "neuvector.{{ DOMAIN_NAME }}"
+    
+---          
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: neuvector-dr
+  namespace: neuvector
+spec:
+  host: neuvector-service-webui
+  trafficPolicy:
+    tls:
+      mode: SIMPLE  # HTTPS 연결 사용
+      insecureSkipVerify: true

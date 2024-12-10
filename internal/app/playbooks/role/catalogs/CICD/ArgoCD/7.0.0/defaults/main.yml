@@ -1,0 +1,19 @@
+---
+########## hosts info #################
+HOST_IP: "{{ansible_host}}"
+
+LOCAL_USER_HOME: "/home/ssm-user"
+
+user:
+  NAME: "{{ ansible_user }}"
+component:
+  INSTALL_ROOT: /home/{{ ansible_user }}/install
+
+
+########## argocd #################
+ARGOCD_INGRESS_CLASS: "nginx"  ## ingress (default=nginx)
+ARGOCD_HOST: "argocd.cnstudio.com"  ## argocd server host (default=argocd.127.0.0.1.sslip.io)
+ARGOCD_NEW_PASSWORD: "admin1234" ## argocd admin password(default=admin1234)
+ARGO_ROLLOUTS_YN: "N"    ## argo rollouts 설치 여부(default=N)
+ARGOCD_IMAGE_UPDATEER_YN: "N"  ## argocd image-updater 설치 여부(default=N)
+ARGOCD_INGRESS_YN: "Y"

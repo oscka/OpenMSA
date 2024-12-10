@@ -1,0 +1,50 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: neuvector-gateway
+  namespace: neuvector
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "neuvector.cnstudio.kt.com"
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    tls:
+      mode: PASSTHROUGH
+    hosts:
+    - "neuvector.cnstudio.kt.com"
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: neuvector-vs
+  namespace: neuvector
+spec:
+  hosts:
+  - "neuvector.cnstudio.kt.com"
+  gateways:
+  - neuvector-gateway
+  http:
+  - match:
+    - port: 80
+    redirect:
+      uri: https://neuvector.cnstudio.kt.com
+      port: 443
+  tls:
+  - match:
+    - port: 443
+      sniHosts:
+      - neuvector.cnstudio.kt.com
+    route:
+    - destination:
+        host: neuvector-service-webui.neuvector.svc.cluster.local
+        port:
+          number: 8443

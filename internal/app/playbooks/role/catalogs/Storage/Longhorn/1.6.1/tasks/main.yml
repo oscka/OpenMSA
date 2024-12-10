@@ -1,0 +1,10 @@
+---
+# tasks file for ansible-role-rancher
+- name: 8.1. Download and install Prerequisites 
+  ansible.builtin.include_tasks: pre.yml
+  when: inventory_hostname in groups['k8s-cluster']
+
+- name: 8.2. Download and install longhorn {{ LONGHORN_VERSION }}
+  ansible.builtin.include_tasks: longhorn.yml
+  when: inventory_hostname in groups['control']
+  

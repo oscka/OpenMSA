@@ -1,0 +1,36 @@
+---
+# RedHat/CentOS 패키지 설치
+- name: Install packages for RedHat family
+  yum:
+   name: 
+     - nfs-utils
+     - iscsi-initiator-utils
+   state: present
+  when: ansible_os_family in ["RedHat", "Rocky"]
+
+# Debian/Ubuntu 패키지 설치  
+- name: Install packages for Debian family
+  apt:
+   name:
+     - nfs-common  
+     - open-iscsi
+   state: present
+   update_cache: yes
+  when: ansible_os_family in ["Ubuntu", "Debian"]
+
+# RedHat iSCSI 서비스 시작
+- name: Enable and start iSCSI service (RedHat)
+  systemd:
+   name: iscsid
+   state: started
+   enabled: yes
+  when: ansible_os_family in ["RedHat", "Rocky"]
+
+# Debian iSCSI 서비스 시작  
+- name: Enable and start iSCSI service (Debian)
+  systemd:
+   name: open-iscsi
+   state: started 
+   enabled: yes
+  when: ansible_os_family in ["Debian", "Ubuntu"]
+

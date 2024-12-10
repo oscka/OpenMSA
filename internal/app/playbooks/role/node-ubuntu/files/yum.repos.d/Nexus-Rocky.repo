@@ -1,0 +1,11 @@
+[nexus-rocky-base]
+name=Nexus Rocky Base Proxy Repository
+baseurl=http://192.168.41.171:8081/repository/yum-proxy-rocky-8/
+enabled=1
+gpgcheck=0
+
+[nexus-rocky-appstream]
+name=Nexus Rocky AppStream Proxy Repository
+baseurl=http://192.168.41.171:8081/repository/yum-proxy-rocky-appstream-8
+enabled=1
+gpgcheck=0

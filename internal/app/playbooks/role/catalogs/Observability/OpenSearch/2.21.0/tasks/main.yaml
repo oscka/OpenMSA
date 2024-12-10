@@ -1,0 +1,4 @@
+- name: 8.4. Install opensearch helm chart
+  include_tasks: opensearch.yaml
+  tags:
+    - catalog_opensearch

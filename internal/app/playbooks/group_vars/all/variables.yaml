@@ -1,0 +1,120 @@
+#########  프로젝트 #########
+PROJECT_NAME: 카탈로그 시언 v0.1
+PROJECT_GROUP_NAME: KT
+BRANCH_NAME: kt-01
+USER: root
+
+###############버전 정보 확인 ############
+LONGHORN_VERSION: 1.6.1
+PROMETHEUS_VERSION: 56.8.2
+OPENSEARCH_VERSION: 2.21.0
+JAEGER_VERSION: 3.1.2
+ISTIO_VERSION: 1.22.2
+ARGOCD_VERSION: 7.5.0
+MINIO_VERSION: 2024.07.04
+VELERO_VERSION: 1.13.1
+KEYCLOAK_VERSION: 21.2.2
+RANCHERUI_VERSION: 2.8.5
+GITLAB_VERSION: 7.11.2
+JENKINS_VERSION:  5.4.3
+NEUVECTOR_VERSION: 2.7.7
+MARIADB_VERSION: 18.0.2
+MYSQL_VERSION: 10.2.2
+POSTGRESQL_VERSION: 14.2.7
+KAFKA_VERSION: 29.3.4
+REDIS_VERSION: 10.2.5
+
+ ################ 설치 여부 확인 #############
+ #DEPLOY_LONGHORN: true
+ #DEPLOY_PROMETHEUS: true
+ #DEPLOY_OPENSEARCH: true
+ #DEPLOY_JAEGER: true
+ #DEPLOY_ISTIO: true
+ #DEPLOY_ARGOCD: true
+ #DEPLOY_MINIO: true
+ #DEPLOY_VELERO: true
+ #DEPLOY_KEYCLOAK: true
+ #DEPLOY_NODEJSCODE: false
+ #DEPLOY_APIGATEWAY: false
+ #DEPLOY_NODEJS: true
+ #DEPLOY_JAVACODE: true
+ #DEPLOY_PYTHONCODE: true
+ #DEPLOY_RANCHERUI: true
+ #DEPLOY_GITLAB: true
+ #DEPLOY_GITLAB_RUNNER: true
+ #DEPLOY_JENKINS: true
+ #DEPLOY_NEUVECTOR: true
+ #DEPLOY_MARIADB: true
+ #DEPLOY_MYSQL: true
+ #DEPLOY_POSTGRESQL: true
+ #DEPLOY_KAFKA: true
+ #DEPLOY_REDIS: true
+ #
+ #
+ ########## 노드 연결 정보 #########
+ #CONTROL_NODE_NAME: controller-node
+ #MASTER_NODE_NAME: master-node01, master-node02, master-node03
+ #WORKER_NODE_NAME: worker-node01, worker-node02
+ #CONTROL_NODE_IP: 192.168.41.171
+ #MASTER_NODE_IP: 192.168.41.172, 192.168.41.173, 192.168.41.174
+ #WORKER_NODE_IP: 192.168.41.175, 192.168.41.176
+ #
+ ########## ALL Servers 정보 #########
+ #ALL_Servers:
+ #  - name: rke2-control-node01
+ #    ip: 192.168.41.171
+ #    roles:
+ #      - control
+ #    labels:
+ #      - control=true
+ #  - name: rke2-master-node01
+ #    ip: 192.168.41.172
+ #    roles:
+ #      - control-plane
+ #    labels:
+ #      - master=true
+ #  - name: rke2-master-node02
+ #    ip: 192.168.41.173
+ #    roles:
+ #      - control-plane
+ #    labels:
+ #      - master=true
+ #  - name: rke2-master-node03
+ #    ip: 192.168.41.174
+ #    roles:
+ #      - control-plane
+ #    labels:
+ #      - master=true
+ #  - name: rke2-worker-node01
+ #    ip: 192.168.41.175
+ #    roles:
+ #      - worker
+ #    labels:
+ #      - worker=true
+ #      - route=true
+ #  - name: rke2-worker-node02
+ #    ip: 192.168.41.176
+ #    roles:
+ #      - worker
+ #    labels:
+ #      - worker=true
+ #      - route=true
+ #      - storage=true
+ #
+######### INSTALL RESOURCE 위치 #########
+LOCAL_PATH:
+  BASE: "{{ playbook_dir }}/files"
+
+######### Taints ############
+taints:
+  nodes:
+    - name: "rke2-master-node01"
+      taints:
+        - "master=true:NoSchedule"
+    - name: "rke2-master-node02"
+      taints:
+        - "master=true:NoSchedule"
+    - name: "rke2-master-node03"
+      taints:
+        - "master=true:NoSchedule"
+

@@ -1,0 +1,36 @@
+# 지정된 배포 명의 GitLab Helm Chart 삭제
+- name: "8.13.5.1. Uninstall GitLab Helm Chart Release"
+  shell: |
+    helm uninstall {{GITLAB_METADATA_RELEASE_LABEL | default(GITLAB_DEFAULT_METADATA_RELEASE_LABEL,true)}} \
+      -n {{GITLAB_METADATA_NAMESPACE | default(GITLAB_DEFAULT_METADATA_NAMESPACE,true)}}
+  when: ansible_host == hostvars[groups.master.0].ansible_host
+
+# 잔여 자원 정보 삭제 (Secret, PV, PVC)
+- name: "8.13.5.2. Release Remain Resources"
+  shell: |
+    kubectl delete secret,pvc \
+      -l release={{GITLAB_METADATA_RELEASE_LABEL | default(GITLAB_DEFAULT_METADATA_RELEASE_LABEL,true)}} \
+      -n {{GITLAB_METADATA_NAMESPACE | default(GITLAB_DEFAULT_METADATA_NAMESPACE,true)}}
+
+    kubectl delete pvc,pv \
+      -l app.kubernetes.io/instance={{GITLAB_METADATA_RELEASE_LABEL | default(GITLAB_DEFAULT_METADATA_RELEASE_LABEL,true)}} \
+      -n {{GITLAB_METADATA_NAMESPACE | default(GITLAB_DEFAULT_METADATA_NAMESPACE,true)}}
+  when: ansible_host == hostvars[groups.master.0].ansible_host
+
+# 배포 대상 Namespace 삭제
+- name: "8.13.5.3. Remove GitLab Deployment Namespace"
+  shell: |
+    kubectl delete ns {{GITLAB_METADATA_NAMESPACE | default(GITLAB_DEFAULT_METADATA_NAMESPACE,true)}}
+  when: ansible_host == hostvars[groups.master.0].ansible_host
+
+# GitLab Data 폴더 삭제
+- name: "8.13.5.4. Remove GitLab Data Directory"
+  become: true
+  file:
+    path: "{{GITLAB_PERSISTENT_ROOT_STORAGE_MOUNT_PATH}}"
+    state: absent
+  when: | 
+    ansible_nodename == GITLAB_PERSISTENT_REDIS_STORAGE_NODE_AFFINITY_VALUE
+    or ansible_nodename == GITLAB_PERSISTENT_GITALY_STORAGE_NODE_AFFINITY_VALUE
+    or ansible_nodename == GITLAB_PERSISTENT_POSTGRESQL_STORAGE_NODE_AFFINITY_VALUE
+    or ansible_nodename == GITLAB_PERSISTENT_MINIO_STORAGE_NODE_AFFINITY_VALUE
