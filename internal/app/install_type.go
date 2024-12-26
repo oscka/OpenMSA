@@ -31,21 +31,24 @@ func NewInstallConfig() *InstallConfig {
 }
 
 func (ic *InstallConfig) DetectOS() error {
-        data, err := os.ReadFile("/etc/os-release")
-        if err != nil {
-                return fmt.Errorf("failed to read OS release file: %v", err)
-        }
-
-        content := string(data)
-        if strings.Contains(strings.ToLower(content), "rocky") {
-                ic.OSType = Rocky
-        } else if strings.Contains(strings.ToLower(content), "ubuntu") {
-                ic.OSType = Ubuntu
-        } else {
-                return fmt.Errorf("unsupported OS type")
-        }
-
-        return nil
+    data, err := os.ReadFile("/etc/os-release")
+    if err != nil {
+        return fmt.Errorf("failed to read OS release file: %v", err)
+    }
+    content := string(data)
+    contentLower := strings.ToLower(content)
+    
+    if strings.Contains(contentLower, "rocky") ||
+       strings.Contains(contentLower, "amazon linux") ||
+       strings.Contains(contentLower, "red hat") ||
+       strings.Contains(contentLower, "rhel") {
+        ic.OSType = Rocky
+    } else if strings.Contains(contentLower, "ubuntu") {
+        ic.OSType = Ubuntu
+    } else {
+        return fmt.Errorf("unsupported OS type")
+    }
+    return nil
 }
 
 func (ic *InstallConfig) SelectInstallationType() error {

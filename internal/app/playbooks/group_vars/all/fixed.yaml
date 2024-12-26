@@ -6,7 +6,7 @@ REGISTRY_ID: "admin"
 REGISTRY_PASSWD: "admin12341234"
 DOCKER_CONFIG: /etc/docker/daemon.json
 HELM_REPO_URL: "http://{{REGISTRY_URL}}:8081/repository/helm-proxy-dspace-host"
-DOMAIN_NAME: "cnstudio.com"
+DOMAIN_NAME: "openmsa.com"
 HELM_REPO_NAME: "cnstudio"
 
 ## variables for 08_configure_registry

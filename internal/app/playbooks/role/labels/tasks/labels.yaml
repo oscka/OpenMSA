@@ -7,8 +7,6 @@
     - item.labels | default([]) | length > 0
     - "'control' not in item.roles"
 
-
-
 ## Taints
 - name: 7.2. Set taints to master nodes
   command: >
@@ -16,4 +14,13 @@
   with_items: "{{ ALL_Servers }}"
   when:
     "'control-plane' in item.roles"
+
+- name: Wait for Ingress controller to be ready
+  ansible.builtin.shell:
+    cmd: kubectl rollout status daemonset rke2-ingress-nginx-controller -n kube-system
+  register: ingress_status
+  until: ingress_status.rc == 0
+  retries: 30
+  delay: 10
+
 

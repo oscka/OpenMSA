@@ -1,12 +1,17 @@
-- hosts: all
+---
+- name: Prepare and Reset Kubernetes Cluster (Ubuntu)
+  hosts: all
   become: yes
+  tags:
+    - cluster-reset
+    - cluster-preparation
   tasks:
     - name: Reset Kubernetes cluster and remove existing configurations
       ansible.builtin.shell: |
-        sudo kubeadm reset -f && sudo rm -rf /etc/kubernetes /var/lib/etcd && sudo systemctl stop kubelet && sudo rm -rf /etc/kubernetes /var/lib/etcd && sudo kubeadm reset -f&& sudo rm -rf /etc/kubernetes&& sudo rm -rf /var/lib/etcd&& sudo rm -rf ~/.kube && sudo rm -rf /tmp/kubeadm_join_command.sh
+        sudo kubeadm reset -f && sudo rm -rf /etc/kubernetes /var/lib/etcd && sudo systemctl stop kubelet && sudo rm -rf /etc/kubernetes /var/lib/etcd && sudo kubeadm reset -f && sudo rm -rf /etc/kubernetes && sudo rm -rf /var/lib/etcd && sudo rm -rf ~/.kube && sudo rm -rf /tmp/kubeadm_join_command.sh
       args:
         executable: /bin/bash
-      ignore_erros: yes
+      ignore_errors: yes
 
     - name: Remove outdated Kubernetes repository configuration files
       ansible.builtin.file:
@@ -37,23 +42,58 @@
         state: present
         update_cache: yes
 
+    - name: Add Docker's official GPG key
+      ansible.builtin.shell: |
+        sudo install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        sudo chmod a+r /etc/apt/keyrings/docker.gpg
+      args:
+        creates: /etc/apt/keyrings/docker.gpg
+
+    - name: Set up Docker repository
+      ansible.builtin.shell: |
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+      args:
+        creates: /etc/apt/sources.list.d/docker.list
+
+    - name: Install containerd
+      ansible.builtin.apt:
+        name:
+          - containerd.io
+        state: present
+        update_cache: yes
+
+    - name: Ensure containerd is running
+      ansible.builtin.systemd:
+        name: containerd
+        state: started
+        enabled: yes
+
     - name: Ensure containerd configuration directory exists
       ansible.builtin.file:
         path: /etc/containerd
         state: directory
 
-    - name: Generate default containerd configuration
-      ansible.builtin.shell: |
-        containerd config default > /etc/containerd/config.toml
-      args:
-        creates: /etc/containerd/config.toml
-
-    - name: Configure containerd to use systemd cgroup driver
-      ansible.builtin.lineinfile:
+    - name: Remove existing containerd configuration
+      file:
         path: /etc/containerd/config.toml
-        regexp: '^\s*SystemdCgroup =.*$'
+        state: absent
+
+    - name: Regenerate containerd configuration
+      shell: |
+        containerd config default > /etc/containerd/config.toml
+
+    - name: Configure containerd for Kubernetes
+      lineinfile:
+        path: /etc/containerd/config.toml
+        regexp: '.*SystemdCgroup = .*'
         line: '            SystemdCgroup = true'
-        insertafter: '^\s*\[plugins\."io\.containerd\.grpc\.v1\.cri"\.containerd\.runtimes\.runc\.options\]'
+
+    - name: Restart containerd forcefully
+      systemd:
+        name: containerd
+        state: restarted
+        daemon_reload: yes
 
     - name: Set Kubernetes pause container image in containerd
       ansible.builtin.lineinfile:
@@ -62,12 +102,22 @@
         line: '    sandbox_image = "registry.k8s.io/pause:3.9"'
         insertafter: '^\s*\[plugins\."io\.containerd\.grpc\.v1\.cri"\]'
 
-    - name: Restart and enable containerd service
-      ansible.builtin.systemd:
-        name: containerd
-        state: restarted
-        enabled: yes
+    - name: Verify containerd is running
+      command: systemctl status containerd
+      register: containerd_status
+      failed_when: containerd_status.rc != 0
 
+    - name: Ensure crictl configuration
+      copy:
+        content: |
+          runtime-endpoint: unix:///run/containerd/containerd.sock
+          image-endpoint: unix:///run/containerd/containerd.sock
+          timeout: 2
+        dest: /etc/crictl.yaml
+
+    - name: Debug containerd status
+      debug:
+        var: containerd_status
     - name: Create keyrings directory for package management
       ansible.builtin.file:
         path: /etc/apt/keyrings
@@ -135,52 +185,268 @@
         - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
         - { name: 'net.ipv4.ip_forward', value: '1' }
 
-
-- hosts: control-node
+- name: set HAproxy In Control Node 
+  hosts: control
   become: yes
+  tags:
+    - haproxy
+  vars:
+    haproxy_config_dir: "{{ playbook_dir }}/files/haproxy"
+    k8s_master_nodes: "{{ ALL_Servers | selectattr('labels', 'contains', 'master=true') | list }}"
+  tasks:
+    - name: 1.2. Docker file copy
+      copy:
+        src: "{{ LOCAL_PATH.BASE }}/packages/docker/docker-25.0.1.tgz"
+        dest: "/tmp/docker-25.0.1.tgz"
+    
+    # Stop docker service
+    - name: 1.3. Stop docker service
+      systemd:
+        name: docker
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+    
+    - name: 1.4. Ensure /tmp/docker directory exists
+      file:
+        path: /tmp/docker
+        state: directory
+    
+    # Untar docker file
+    - name: 1.6. Untar docker file
+      shell: |
+        tar xzvf /tmp/docker-25.0.1.tgz -C /tmp/docker
+    
+    # Copy docker files
+    - name: 1.7. Copy docker files
+      shell: |
+        cp /tmp/docker/docker/* /usr/bin/
+      args:
+        creates: "/usr/bin/dockerd"
+    
+    # Create service from j2 file
+    - name: 1.8. Create service from j2 file
+      template:
+        src: "files/packages/docker/docker.service.j2"
+        dest: /etc/systemd/system/docker.service
+    
+    # Start docker service
+    - name: 1.12. Start and enable docker
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+    
+    # Ensure HAProxy configuration directory exists
+    - name: Ensure HAProxy configuration directory exists
+      file:
+        path: "{{ haproxy_config_dir }}"
+        state: directory
+        mode: '0755'
+
+    # Generate HAProxy configuration file from template
+    - name: Generate HAProxy configuration file
+      template:
+        src: "files/haproxy/kubeadm-haproxy.cfg.j2"  # 템플릿 경로를 상대 경로로 변경
+        dest: "{{ haproxy_config_dir }}/kubeadm-haproxy.cfg"
+        mode: '0644'
+
+    # Copy Docker Compose binary to the correct location
+    - name: Copy Docker Compose binary
+      copy:
+        src: "files/packages/docker/docker-compose"  # 상대 경로로 변경
+        dest: "/usr/bin/docker-compose"
+        mode: 'u+x,g+x'
+
+    # Check Docker Compose version to ensure it's installed correctly
+    - name: Check installed Docker Compose version
+      command: docker-compose --version
+      register: docker_compose_version
+
+    - debug: var=docker_compose_version.stdout_lines
+
+    # Load Nexus container image (HAProxy image)
+    - name: Load HAProxy container image
+      shell: docker load -i {{ item }}
+      with_items:
+        - "{{ LOCAL_PATH.BASE }}/packages/docker/haproxy.tar"
+
+    # Create Docker Compose file for HAProxy
+    - name: Create HAProxy Docker Compose file
+      copy:
+        dest: "{{ LOCAL_PATH.BASE }}/haproxy/docker-compose.yml"
+        content: |
+          version: '3'
+          services:
+            haproxy:
+              image: haproxy:240723
+              container_name: haproxy
+              restart: always
+              ports:
+                - '80:80'
+                - '443:443'
+                - '6443:6443'
+                - '9345:9345'
+                - '8404:8404'
+              volumes:
+                - {{ LOCAL_PATH.BASE }}/haproxy/kubeadm-haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
+
+    # Run HAProxy container using Docker Compose
+    - name: Run HAProxy service using Docker Compose
+      shell: docker-compose -f {{ LOCAL_PATH.BASE }}/haproxy/docker-compose.yml up -d
+
+- name: Install Kubernetes Mangement tools
+  hosts: control, masters
+  become: yes
+  tags:
+    - k8s-management-tools
+  tasks:
+    - name: Create temporary directory
+      tempfile:
+        state: directory
+        suffix: tools
+      register: temp_dir
+
+    - name: Download kubectl
+      get_url:
+        url: "https://dl.k8s.io/release/v1.29.2/bin/linux/amd64/kubectl"
+        dest: "{{ temp_dir.path }}/kubectl"
+        mode: '0755'
+
+    - name: Download helm
+      unarchive:
+        src: "https://get.helm.sh/helm-v3.13.2-linux-amd64.tar.gz"
+        dest: "{{ temp_dir.path }}"
+        remote_src: yes
+
+
+    - name: Download k9s
+      unarchive:
+        src: "https://github.com/derailed/k9s/releases/download/v0.31.9/k9s_Linux_amd64.tar.gz"
+        dest: "{{ temp_dir.path }}"
+        remote_src: yes
+    - name: Install tools to /usr/local/bin
+      copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        mode: '0755'
+        remote_src: yes
+      loop:
+        - { src: "{{ temp_dir.path }}/k9s", dest: "/usr/local/bin/k9s" }
+        - { src: "{{ temp_dir.path }}/linux-amd64/helm", dest: "/usr/local/bin/helm" }
+
+    - name: Create symbolic links in /usr/bin
+      file:
+        src: "/usr/local/bin/{{ item }}"
+        dest: "/usr/bin/{{ item }}"
+        state: link
+        force: yes
+      loop:
+        - k9s
+        - helm
+
+- name: Configure Kubernetes Control Node Permissions
+  hosts: control
+  become: yes
+  tags:
+    - node-permissions
   tasks:
     - name: Set secure permissions for Kubernetes configuration directory
       ansible.builtin.shell: |
         sudo mkdir -p /etc/kubernetes/pki
-        sudo chmod 0777 /etc/kubernetes 
-        sudo chmod 0777 /etc/kubernetes/pki 
+        sudo chmod 0777 /etc/kubernetes
+        sudo chmod 0777 /etc/kubernetes/pki
       args:
         executable: /bin/bash
 
-
-- hosts: masters
+- name: Initialize Kubernetes Master Nodes
+  hosts: masters
   become: yes
+  tags:
+    - k8s-master-initialization
   tasks:
+    - name: Ensure containerd configuration directory exists
+      file:
+        path: /etc/containerd
+        state: directory
+
+    - name: Ensure crictl is configured
+      copy:
+        dest: /etc/crictl.yaml
+        content: |
+          runtime-endpoint: unix:///run/containerd/containerd.sock
+          image-endpoint: unix:///run/containerd/containerd.sock
+          timeout: 10
+          debug: false
+
     - name: Pre-pull Kubernetes control plane images
-      ansible.builtin.command: kubeadm config images pull --kubernetes-version=1.29.0
+      command: >
+        kubeadm config images pull
+        --kubernetes-version=1.29.0
+        --cri-socket unix:///run/containerd/containerd.sock
+      register: image_pull_result
+      failed_when: false
+      changed_when: image_pull_result.rc == 0
+      when: "'master-init' in group_names"
+
+    - name: Display image pull result
+      debug:
+        var: image_pull_result
+      when:
+        - "'master-init' in group_names"
+        - image_pull_result.rc != 0
+
+    - name: Get master-init IP from servers.yaml
+      set_fact:
+        master_init_ip: "{{ (ALL_Servers | selectattr('labels', 'defined')
+                                 | selectattr('labels', 'search', 'master=true')
+                                 | map(attribute='ip') | list | first).strip() }}"
+    - name: Debug master_init_ip
+      debug:
+        msg: "Master Init IP: {{ master_init_ip }}"
 
     - name: Initialize first master node
-      ansible.builtin.command: >
+      command: >
         kubeadm init
-        --control-plane-endpoint "192.168.31.182:6443"
-        --upload-certs
+        --v=5
+        --ignore-preflight-errors=all
+        --control-plane-endpoint "{{ master_init_ip }}:6443"
         --kubernetes-version=1.29.0
         --pod-network-cidr=10.244.0.0/16
+        --cri-socket=unix:///run/containerd/containerd.sock
       register: kubeadm_init
-      when: inventory_hostname == "node01"
+      when: "'master-init' in group_names"
+      failed_when: false
 
-    - name: Generate worker node join command
-      ansible.builtin.shell: "echo '{{ kubeadm_init.stdout_lines[-2] }} --discovery-token-unsafe-skip-ca-verification' > /tmp/kubeadm_join_command.sh"
-      args:
-        executable: /bin/bash
-      when: inventory_hostname == "node01"
+    - name: Debug kubeadm_init
+      debug:
+       var: kubeadm_init
+
+    - name: Retrieve the join command
+      shell: kubeadm token create --print-join-command
+      register: join_command
+      when: "'master-init' in group_names"
+
+    - name: Save the join command to a script file
+      when: "'master-init' in group_names"
+      copy:
+        content: |
+          #!/bin/bash
+          {{ join_command.stdout }} --discovery-token-unsafe-skip-ca-verification
+        dest: /tmp/kubeadm_join_command.sh
+        mode: '0755'
 
     - name: Create PKI directory on non-primary master nodes
       ansible.builtin.file:
         path: /etc/kubernetes/pki
         state: directory
         mode: '0755'
-      when: inventory_hostname != "node01"  
+      when: "'master-init' not in group_names"
 
     - name: Fetch CA certificates from primary master node
       fetch:
         src: "/etc/kubernetes/pki/{{ item }}"
-        dest: "./files/pki/"
+        dest: "/etc/openmsa/files/pki/"
         flat: yes
       with_items:
         - ca.crt
@@ -189,68 +455,109 @@
         - front-proxy-ca.key
         - sa.pub
         - sa.key
-      when: inventory_hostname == "node01"  
+      when: "'master-init' in group_names"
 
     - name: Create ETCD PKI directory on non-primary master nodes
       ansible.builtin.file:
         path: /etc/kubernetes/pki/etcd
         state: directory
         mode: '0755'
-      when: inventory_hostname != "node01"
+      when: "'master-init' not in group_names"
 
     - name: Fetch ETCD CA certificates from primary master node
       fetch:
         src: "/etc/kubernetes/pki/etcd/{{ item }}"
-        dest:  "./files/etcd/"
+        dest:  "/etc/openmsa/files/etcd/"
         flat: yes
       with_items:
         - ca.crt
         - ca.key
-      when: inventory_hostname == "node01"   
+      when: "'master-init' in group_names"
 
     - name: Clean up join command script
-      ansible.builtin.command: sed -i 's/\\//g' /tmp/kubeadm_join_command.sh 
+      ansible.builtin.command: sed -i 's/\\//g' /tmp/kubeadm_join_command.sh
       args:
         executable: /bin/bash
-      when: inventory_hostname == "node01"
+      when: "'master-init' in group_names"
 
     - name: Fetch join command from primary master node
       fetch:
         src: "/tmp/kubeadm_join_command.sh"
-        dest: "./files/"
+        dest: "/etc/openmsa/files/"
         flat: yes
-      when: inventory_hostname == "node01"     
+      when: "'master-init' in group_names"
 
-- hosts: all
+- name: Distribute Join Command to Non-Primary Nodes
+  hosts: all
   become: yes
+  tags:
+    - node-join
+    - cluster-configuration
   tasks:
     - name: Copy join command to non-primary nodes
       copy:
-        src: "./files/{{ item }}"
+        src: "/etc/openmsa/files/{{ item }}"
         dest: "/tmp/{{ item }}"
       with_items:
         - kubeadm_join_command.sh
-      when: inventory_hostname != "node01"        
+      when: "'master-init' not in group_names"
 
-- hosts: control-node
+- name: Fetch kubeconfig from master-init
+  hosts: master-init
   become: yes
+  tags:
+    - k8s-kubeconfig-fetch
   tasks:
-    # - name: Copy join command to other masters and workers
-    #   ansible.builtin.copy:
-    #     src: /tmp/kubeadm_join_command.sh
-    #     dest: /tmp/kubeadm_join_command.sh
-    #   when: inventory_hostname != "node01"
+    - name: Fetch kubeconfig file to local
+      fetch:
+        src: /etc/kubernetes/admin.conf
+        dest: /tmp/kubeconfig/admin.conf
+        flat: yes
 
-    - name: Create Kubernetes configuration directory
-      ansible.builtin.shell: |
-        mkdir -p ~/.kube
-      
-- hosts: masters
+- name: Distribute kubeconfig to control and masters
+  hosts: control, masters
   become: yes
+  tags:
+    - k8s-kubeconfig-distribution
+  tasks:
+    - name: Create .kube directory for root user
+      file:
+        path: /root/.kube
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: Copy kubeconfig to root user's directory
+      copy:
+        src: "/tmp/kubeconfig/admin.conf"
+        dest: /root/.kube/config
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: Add KUBECONFIG environment variable to root's shell profile
+      lineinfile:
+        path: /root/.bashrc
+        line: 'export KUBECONFIG=/root/.kube/config'
+        state: present
+
+    - name: Apply KUBECONFIG environment variable immediately for root
+      shell: |
+        export KUBECONFIG=/root/.kube/config
+      args:
+        executable: /bin/bash
+
+- name: Distribute Cluster Certificates to Master Nodes
+  hosts: masters
+  become: yes
+  tags:
+    - certificate-distribution
+    - security-config
   tasks:
     - name: Copy cluster certificates to non-primary master nodes
       copy:
-        src: "./files/pki/{{ item }}"
+        src: "/etc/openmsa/files/pki/{{ item }}"
         dest: "/etc/kubernetes/pki/{{ item }}"
       with_items:
         - ca.crt
@@ -259,33 +566,38 @@
         - front-proxy-ca.key
         - sa.pub
         - sa.key
-      when: inventory_hostname != "node01"  
+      when: "'master-init'not in group_names"
 
     - name: Copy ETCD certificates to non-primary master nodes
       copy:
-        src: "./files/etcd/{{ item }}"
+        src: "/etc/openmsa/files/etcd/{{ item }}"
         dest:  "/etc/kubernetes/pki/etcd/{{ item }}"
       with_items:
         - ca.crt
         - ca.key
-      when: inventory_hostname != "node01"  
+      when: "'master-init'not in group_names"
 
     - name: Modify join command for additional master nodes
       ansible.builtin.shell: |
         sed -i 's/$/ --control-plane/' /tmp/kubeadm_join_command.sh
       args:
         executable: /bin/bash
-      when: inventory_hostname != "node01"
+      when: "'master-init'not in group_names"
 
     - name: Join additional master nodes to the Kubernetes cluster
       ansible.builtin.shell: |
         bash /tmp/kubeadm_join_command.sh
       args:
         executable: /bin/bash
-      when: inventory_hostname != "node01"
+      when: "'master-init'not in group_names"
 
-- hosts: workers
+
+- name: Join Worker Nodes to Kubernetes Cluster
+  hosts: workers
   become: yes
+  tags:
+    - worker-join
+    - cluster-configuration
   tasks:
     - name: Join worker nodes to the Kubernetes cluster
       ansible.builtin.shell: |
@@ -293,29 +605,412 @@
       args:
         executable: /bin/bash
 
-- hosts: masters
+- name: Configure Control Node and Install Network Plugin
+  hosts: control
   become: yes
-  tasks:
-    - name: Fetch cluster configuration for control node
-      fetch:
-        src: /etc/kubernetes/admin.conf  
-        dest: /home/{{ USER }}/.kube/config
-        flat: yes
-      when: inventory_hostname == "node01"    
-
-- hosts: control-node
-  become: yes
+  tags:
+    - network-plugin
+    - final-setup
   tasks:
     - name: Link kubectl binary to system path
       ansible.builtin.command: ln -sf /usr/bin/kubectl /usr/local/bin/kubectl
       args:
         executable: /bin/bash
 
+    - name: Check cluster node status before CNI installation
+      ansible.builtin.shell: |
+        export KUBECONFIG=/root/.kube/config
+        kubectl get nodes
+      register: node_status
+      changed_when: false
+
+    - name: Display node status
+      ansible.builtin.debug:
+        var: node_status.stdout_lines
+
+    - name: Download Calico manifest
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/projectcalico/calico/v3.26.4/manifests/calico.yaml
+        dest: /tmp/calico.yaml
+        mode: '0644'
+
     - name: Install Calico network plugin
       ansible.builtin.shell: |
-        export KUBECONFIG=/home/{{ USER }}/.kube/config
-        kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.26.1/manifests/calico.yaml
+        export KUBECONFIG=/root/.kube/config
+        kubectl apply -f /tmp/calico.yaml
+      register: calico_install
+      changed_when: calico_install.rc == 0
+
+    - name: Wait for Calico pods to be ready
+      ansible.builtin.shell: |
+        export KUBECONFIG=/root/.kube/config
+        kubectl wait --namespace=kube-system --for=condition=Ready pods --selector=k8s-app=calico-node --timeout=180s
+      register: calico_pods_status
+      changed_when: false
+
+    - name: Check node status after CNI installation
+      ansible.builtin.shell: |
+        export KUBECONFIG=/root/.kube/config
+        kubectl get nodes
+      register: node_status_after
+      changed_when: false
+
+    - name: Display node status after CNI installation
+      ansible.builtin.debug:
+        var: node_status_after.stdout_lines
+
+- name: Install Nginx Ingress controller
+  hosts: control
+  become: yes
+  tags:
+    - install-nginx-ingress
+  tasks:
+    - name: Add Helm repository
+      ansible.builtin.shell: |
+        helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+        helm repo update
       args:
         executable: /bin/bash
 
+    - name: Install NGINX Ingress Controller
+      ansible.builtin.shell: |
+        helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+          --namespace ingress-nginx \
+          --create-namespace \
+          --set controller.service.type=NodePort \
+          --set controller.service.nodePorts.http=30080 \
+          --set controller.service.nodePorts.https=30443 \
+          --set controller.containerPort.http=80 \
+          --set controller.containerPort.https=443 \
+          --set controller.kind=DaemonSet \
+          --set controller.ingressClass=nginx \
+          --set controller.ingressClassResource.default=true
+      args:
+        executable: /bin/bash
+
+    - name: Wait for NGINX Ingress controller pods to be ready
+      ansible.builtin.shell: |
+        kubectl wait --namespace ingress-nginx \
+          --for=condition=ready pod \
+          --selector=app.kubernetes.io/component=controller \
+          --timeout=600s
+      args:
+        executable: /bin/bash
+
+    - name: Verify NGINX Ingress Controller installation
+      ansible.builtin.command: |
+        kubectl get pods -n ingress-nginx
+      register: ingress_pods
+      changed_when: false
+
+    - name: Debug ingress pods
+      ansible.builtin.debug:
+        var: ingress_pods
+
+    - name: Get Ingress Controller Service Details
+      ansible.builtin.command: |
+        kubectl get service -n ingress-nginx
+      register: ingress_service
+      changed_when: false
+
+    - name: Debug ingress service
+      ansible.builtin.debug:
+        var: ingress_service
+
+- name: Label Nodes
+  hosts: control
+  become: yes
+  tags:
+    - label-nodes
+  tasks:
+     ## Labels
+     - name: 7.1. Add labels to nodes
+       command: >
+         kubectl label node {{ item.name }} {{ item.labels | join(' ') }} --overwrite
+       loop: "{{ ALL_Servers }}"
+       when:
+         - item.labels | default([]) | length > 0
+         - "'control' not in item.roles"
+
+     ## Taints
+     - name: 7.2. Set taints to master nodes
+       command: >
+         kubectl taint node {{ item.name }} node-role.kubernetes.io/control-plane=true:NoSchedule --overwrite
+       with_items: "{{ ALL_Servers }}"
+       when:
+         "'control-plane' in item.roles"
+
+- name: Deploy RancherUI
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/Observability/Rancherui/{{ RANCHERUI_VERSION }}"
+      when: DEPLOY_RANCHERUI
+  tags:
+    - catalog_rancherui
+
+- name:  Deploy Longhorn
+  hosts: all
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/Storage/Longhorn/{{ LONGHORN_VERSION }}"
+      when: DEPLOY_LONGHORN
+  tags:
+    - longhorn
+
+- name: Deploy Prometheus
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    -  include_role:
+          name: "./role/catalogs/Observability/Prometheus/{{ PROMETHEUS_VERSION }}"
+       when: DEPLOY_PROMETHEUS | default(False)
+  tags:
+    - prometheus
+
+- name: Deploy OpenSearch
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    -  include_role:
+        name: "./role/catalogs/Observability/OpenSearch/{{ OPENSEARCH_VERSION }}"
+       when: DEPLOY_OPENSEARCH | default(False)
+  tags:
+    - catalog_opensearch
+
+- name: Deploy Jaeger
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/Observability/Jaeger/{{ JAEGER_VERSION }}"
+      when: DEPLOY_JAEGER | default(False)
+  tags:
+    - catalog_jaeger
+
+- name: Deploy Minio
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    -  include_role:
+         name: "./role/catalogs/Storage/Minio/{{ MINIO_VERSION }}"
+       when: DEPLOY_MINIO | default(False)
+  tags:
+    - minio
+
+- name: Deploy Velero
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    -  include_role:
+         name: "./role/catalogs/Backup/Velero/{{ VELERO_VERSION }}"
+       when: DEPLOY_VELERO | default(False)
+  tags:
+    - velero
+
+- name: Deploy Argocd
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    -  include_role:
+         name: "./role/catalogs/CICD/ArgoCD/{{ ARGOCD_VERSION }}"
+       when: DEPLOY_ARGOCD | default(False)
+  tags:
+    - argocd
+
+- name: Deploy Keycloak
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/Auth/Keycloak/{{ KEYCLOAK_VERSION }}"
+      when: DEPLOY_KEYCLOAK | default(False)
+  tags:
+    - keycloak
+
+- name: Deploy Demo java Api
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/SampleCode/Java"
+      when:  DEPLOY_JAVACODE | default(false)
+  tags:
+    - java
+
+- name: Deploy Spring Cloud GW
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    -  include_role:
+         name: "./role/catalogs/SampleCode/Spring_Cloud_GW"
+       when: DEPLOY_APIGATEWAY | default(False)
+  tags:
+    - gateway
+
+- name: Deploy NodeJs
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    -  include_role:
+         name: "./role/catalogs/SampleCode/Nodejs"
+       when: DEPLOY_NODEJSCODE | default(False)
+  tags:
+    - nodejs
+
+- name: Deploy Python
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    -  include_role:
+        name: "./role/catalogs/SampleCode/Python"
+       when: DEPLOY_PYTHONCODE | default(False)
+  tags:
+    - python
+
+- name: Deploy Gitlab
+  hosts: k8s-cluster
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/CICD/Gitlab/{{GITLAB_VERSION}}"
+      when: DEPLOY_GITLAB | default(False)
+  tags:
+    - gitlab
+
+- name: Deploy Jenkins
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/CICD/Jenkins/{{ JENKINS_VERSION }}"
+      when: DEPLOY_JENKINS | default(False)
+  tags:
+    - jenkins
+
+- name: Deploy Neuvector
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/Security/Neuvector/{{ NEUVECTOR_VERSION }}"
+      when: DEPLOY_NEUVECTOR | default(False)
+  tags:
+    - neuvector
+
+- name: Deploy MYSQL
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/DB/MySQL/{{ MYSQL_VERSION }}"
+      when:  DEPLOY_MYSQL | default(false)
+  tags:
+    - mysql
+
+- name: Deploy MariaDB
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/DB/MariaDB/{{ MARIADB_VERSION }}"
+      when: DEPLOY_MARIADB | default(False)
+  tags:
+    - mariadb
+
+- name: Deploy PostgreSQL
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/DB/Postgresql/{{ POSTGRESQL_VERSION }}"
+      when: DEPLOY_POSTGRESQL | default(False)
+  tags:
+    - postgresql
+
+- name: Deploy KAFKA
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/DB/Kafka/{{ KAFKA_VERSION }}"
+      when: DEPLOY_KAFKA | default(False)
+  tags:
+    - kafka
+
+- name: Deploy REDIS
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/DB/Redis/{{ REDIS_VERSION }}"
+      when: DEPLOY_REDIS | default(False)
+  tags:
+    - redis
+
+- name: Deploy ISTIO
+  hosts: control
+  remote_user: "{{ USER }}"
+  become: True
+  gather_facts: True
+  tasks:
+    - include_role:
+        name: "./role/catalogs/Network/Istio/{{ ISTIO_VERSION }}"
+      when: DEPLOY_ISTIO | default(False)
+  tags:
+    - catalog_istio
+
+- name: Deploy VirtualServices to Kubernetes
+  hosts: control
+  become: True
+  tasks:
+    - name: Render and apply VirtualService templates
+      include_tasks: "./virtualservices/virtualservices.yaml"
+      when: DEPLOY_ISTIO | default(False)
+  tags:
+    - virtualservices
 

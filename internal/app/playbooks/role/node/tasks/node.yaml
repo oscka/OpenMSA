@@ -20,11 +20,10 @@
   iptables:
     flush: yes
 
-# Diable SELinux
-- name: 2.14. Disable SELinux
-  ansible.posix.selinux:
-    policy: targeted
-    state: disabled
+- name: 2.15.1 selinux setting(amazon-linux)
+  shell: sudo amazon-linux-extras enable selinux-ng; sudo yum install selinux-policy-targeted -y
+  ignore_errors: true
+    
 
 - name: 2.15. Update SELinux configuration file
   lineinfile:
@@ -32,14 +31,17 @@
     regexp: '^SELINUX='
     line: SELINUX=disabled
     backup: yes # 내용이 다르면 백업(파일이름.날짜 형식) / 같으면 백업 X
+  ignore_errors: true
 
 - name: 2.16. SELinux state
   shell: getenforce
   register: "check_selinux"
+  ignore_errors: true
 
 - name: 2.17. Print SELinux status
   debug:
     msg: "{{ check_selinux.stdout }}"
+  ignore_errors: true
 
 # Configure network
 - name: 2.19. Add the content to the file
@@ -50,6 +52,7 @@
       [keyfile]
       unmanaged-devices=interface-name:cali*;interface-name:flannel*
       ##
+  ignore_errors: true
 
 - name: 2.20. Reload NetworkManager
   systemd:
@@ -57,12 +60,14 @@
     state: restarted
     enabled: true
   register: "check_networkmanager_status"
+  ignore_errors: true
 
 - name: 2.21. Print NetworkManager service status
   debug:
     msg: "{{ check_networkmanager_status }}"
+  ignore_errors: true
 
-# Disable firewalld
+    # Disable firewalld
 - name: 2.22. Be sure firewalld is disabled
   systemd: name=firewalld enabled=no
   ignore_errors: true

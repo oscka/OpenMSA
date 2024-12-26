@@ -47,6 +47,8 @@ func setupAnsibleConfig(server Server) error {
     // Ansible configuration content
     ansibleConfigContent := `[defaults]
 host_key_checking = False
+deprecation_warnings = False
+command_warnings = False
 `
 
     // Create the /etc/ansible directory if it doesn't exist

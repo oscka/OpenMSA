@@ -1,80 +1,681 @@
-- name: install control node (kubeadm)
+---
+- name: Prepare and Reset Kubernetes Cluster (Amazon Linux 2)
+  hosts: all
+  become: yes
+  tags:
+    - cluster-reset
+    - cluster-preparation
+  tasks:
+    - name: Reset Kubernetes cluster and remove existing configurations
+      ansible.builtin.shell: |
+        kubeadm reset -f && rm -rf /etc/kubernetes /var/lib/etcd && systemctl stop kubelet && rm -rf ~/.kube
+      args:
+        executable: /bin/bash
+      ignore_errors: yes
+
+    - name: Disable system swap
+      ansible.builtin.command: swapoff -a
+      when: ansible_swaptotal_mb > 0
+
+    - name: Install required packages
+      ansible.builtin.yum:
+        name:
+          - yum-utils
+          - device-mapper-persistent-data
+          - lvm2
+          - curl
+          - wget
+        state: present
+
+    - name: Install Docker
+      ansible.builtin.yum:
+        name: docker
+        state: present
+
+    - name: Ensure Docker is running
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Install containerd
+      ansible.builtin.yum:
+        name: containerd
+        state: present
+
+    - name: Ensure containerd is running
+      ansible.builtin.systemd:
+        name: containerd
+        state: started
+        enabled: yes
+
+    - name: Create containerd configuration directory
+      ansible.builtin.file:
+        path: /etc/containerd
+        state: directory
+
+    - name: Generate default containerd configuration
+      shell: containerd config default > /etc/containerd/config.toml
+
+    - name: Configure containerd for systemd cgroup
+      ansible.builtin.lineinfile:
+        path: /etc/containerd/config.toml
+        regexp: '.*SystemdCgroup = .*'
+        line: '            SystemdCgroup = true'
+
+    - name: Restart containerd
+      ansible.builtin.systemd:
+        name: containerd
+        state: restarted
+        daemon_reload: yes
+
+    - name: Add Kubernetes repository
+      ansible.builtin.yum_repository:
+        name: kubernetes
+        description: Kubernetes Repository
+        baseurl: https://pkgs.k8s.io/core:/stable:/v1.29/rpm/
+        gpgcheck: yes
+        gpgkey: https://pkgs.k8s.io/core:/stable:/v1.29/rpm/repodata/repomd.xml.key
+        enabled: yes
+
+    - name: Install Kubernetes components
+      ansible.builtin.yum:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+    - name: Ensure yum-plugin-versionlock is installed
+      yum:
+        name: yum-plugin-versionlock
+        state: present
+
+    - name: Prevent automatic upgrades of Kubernetes packages
+      ansible.builtin.shell: |
+        yum versionlock kubelet kubeadm kubectl
+      args:
+        executable: /bin/bash
+
+    - name: Start and enable kubelet
+      ansible.builtin.systemd:
+        name: kubelet
+        state: started
+        enabled: yes
+
+    - name: Load kernel modules
+      ansible.builtin.modprobe:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - overlay
+        - br_netfilter
+
+    - name: Configure kernel parameters
+      ansible.builtin.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_set: yes
+        reload: yes
+      with_items:
+        - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+        - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+        - { name: 'net.ipv4.ip_forward', value: '1' }
+
+- name: set HAproxy (Amazon Linux 2)
   hosts: control
-  remote_user:  "{{ USER }}"
-  become: True
-  gather_facts: True
-  tasks:
-    - include_role:
-        name: ./role/control
+  become: yes
   tags:
-    - install-control
-
-- name: install node
-  hosts: k8s-cluster
-  remote_user: "{{ USER }}"
-  become: True
-  gather_facts: True
+    - haproxy
+  vars:
+    haproxy_config_dir: "{{ playbook_dir }}/files/haproxy"
+    k8s_master_nodes: "{{ ALL_Servers | selectattr('labels', 'contains', 'master=true') | list }}"
   tasks:
-    - include_role:
-         name: ./role/node 
-  tags:
-    - install-node
+    - name: 1.2. Docker file copy
+      copy:
+        src: "{{ LOCAL_PATH.BASE }}/packages/docker/docker-25.0.1.tgz"
+        dest: "/tmp/docker-25.0.1.tgz"
 
-- name: init master
+    # Stop docker service
+    - name: 1.3. Stop docker service
+      systemd:
+        name: docker
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+
+    - name: 1.4. Ensure /tmp/docker directory exists
+      file:
+        path: /tmp/docker
+        state: directory
+
+    # Untar docker file
+    - name: 1.6. Untar docker file
+      shell: |
+        tar xzvf /tmp/docker-25.0.1.tgz -C /tmp/docker
+
+    # Copy docker files
+    - name: 1.7. Copy docker files
+      shell: |
+        cp /tmp/docker/docker/* /usr/bin/
+      args:
+        creates: "/usr/bin/dockerd"
+
+    # Create service from j2 file
+    - name: 1.8. Create service from j2 file
+      template:
+        src: "files/packages/docker/docker.service.j2"
+        dest: /etc/systemd/system/docker.service
+
+    # Start docker service
+    - name: 1.12. Start and enable docker
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+    
+    # Ensure HAProxy configuration directory exists
+    - name: Ensure HAProxy configuration directory exists
+      file:
+        path: "{{ haproxy_config_dir }}"
+        state: directory
+        mode: '0755'
+
+    # Generate HAProxy configuration file from template
+    - name: Generate HAProxy configuration file
+      template:
+        src: "files/haproxy/kubeadm-haproxy.cfg.j2"  # 템플릿 경로를 상대 경로로 변경
+        dest: "{{ haproxy_config_dir }}/kubeadm-haproxy.cfg"
+        mode: '0644'
+
+    # Copy Docker Compose binary to the correct location
+    - name: Copy Docker Compose binary
+      copy:
+        src: "files/packages/docker/docker-compose"  # 상대 경로로 변경
+        dest: "/usr/bin/docker-compose"
+        mode: 'u+x,g+x'
+
+    # Check Docker Compose version to ensure it's installed correctly
+    - name: Check installed Docker Compose version
+      command: docker-compose --version
+      register: docker_compose_version
+
+    - debug: var=docker_compose_version.stdout_lines
+
+    # Load Nexus container image (HAProxy image)
+    - name: Load HAProxy container image
+      shell: docker load -i {{ item }}
+      with_items:
+        - "{{ LOCAL_PATH.BASE }}/packages/docker/haproxy.tar"
+
+    # Create Docker Compose file for HAProxy
+    - name: Create HAProxy Docker Compose file
+      copy:
+        dest: "{{ LOCAL_PATH.BASE }}/haproxy/docker-compose.yml"
+        content: |
+          version: '3'
+          services:
+            haproxy:
+              image: haproxy:240723
+              container_name: haproxy
+              restart: always
+              ports:
+                - '80:80'
+                - '443:443'
+                - '6443:6443'
+                - '9345:9345'
+                - '8404:8404'
+              volumes:
+                - {{ LOCAL_PATH.BASE }}/haproxy/kubeadm-haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
+
+    # Run HAProxy container using Docker Compose
+    - name: Run HAProxy service using Docker Compose
+      shell: docker-compose -f {{ LOCAL_PATH.BASE }}/haproxy/docker-compose.yml up -d
+
+- name: Install Kubernetes Mangement tools
+  hosts: control, masters
+  become: yes
+  tags:
+    - k8s-management-tools
+  tasks:
+    - name: Create temporary directory
+      tempfile:
+        state: directory
+        suffix: tools
+      register: temp_dir
+
+    - name: Download kubectl
+      get_url:
+        url: "https://dl.k8s.io/release/v1.29.2/bin/linux/amd64/kubectl"
+        dest: "{{ temp_dir.path }}/kubectl"
+        mode: '0755'
+
+    - name: Download helm
+      unarchive:
+        src: "https://get.helm.sh/helm-v3.13.2-linux-amd64.tar.gz"
+        dest: "{{ temp_dir.path }}"
+        remote_src: yes
+
+
+    - name: Download k9s
+      unarchive:
+        src: "https://github.com/derailed/k9s/releases/download/v0.31.9/k9s_Linux_amd64.tar.gz"
+        dest: "{{ temp_dir.path }}"
+        remote_src: yes
+    - name: Install tools to /usr/local/bin
+      copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        mode: '0755'
+        remote_src: yes
+      loop:
+        - { src: "{{ temp_dir.path }}/k9s", dest: "/usr/local/bin/k9s" }
+        - { src: "{{ temp_dir.path }}/linux-amd64/helm", dest: "/usr/local/bin/helm" }
+
+    - name: Create symbolic links in /usr/bin
+      file:
+        src: "/usr/local/bin/{{ item}}"
+        dest: "/usr/bin/{{ item }}"
+        state: link
+        force: yes
+      loop:
+        - k9s
+        - helm
+
+- name: Configure Kubernetes Control Node Permissions
+  hosts: control
+  become: yes
+  tags:
+    - node-permissions
+  tasks:
+    - name: Set secure permissions for Kubernetes configuration directory
+      ansible.builtin.shell: |
+        sudo mkdir -p /etc/kubernetes/pki
+        sudo chmod 0777 /etc/kubernetes
+        sudo chmod 0777 /etc/kubernetes/pki
+      args:
+        executable: /bin/bash
+
+- name: Initialize Kubernetes Master Nodes
+  hosts: masters
+  become: yes
+  tags:
+    - k8s-master-initialization
+  tasks:
+    - name: Ensure containerd configuration directory exists
+      file:
+        path: /etc/containerd
+        state: directory
+
+    - name: Ensure crictl is configured
+      copy:
+        dest: /etc/crictl.yaml
+        content: |
+          runtime-endpoint: unix:///run/containerd/containerd.sock
+          image-endpoint: unix:///run/containerd/containerd.sock
+          timeout: 10
+          debug: false
+
+    - name: Pre-pull Kubernetes control plane images
+      command: >
+        kubeadm config images pull
+        --kubernetes-version=1.29.0
+        --cri-socket unix:///run/containerd/containerd.sock
+      register: image_pull_result
+      failed_when: false
+      changed_when: image_pull_result.rc == 0
+      when: "'master-init' in group_names"
+
+    - name: Display image pull result
+      debug:
+        var: image_pull_result
+      when:
+        - "'master-init' in group_names"
+        - image_pull_result.rc != 0
+
+    - name: Get master-init IP from servers.yaml
+      set_fact:
+        master_init_ip: "{{ (ALL_Servers | selectattr('labels', 'defined')
+                                 | selectattr('labels', 'search', 'master=true')
+                                 | map(attribute='ip') | list | first).strip() }}"
+    - name: Debug master_init_ip
+      debug:
+        msg: "Master Init IP: {{ master_init_ip }}"
+
+    - name: Initialize first master node
+      command: >
+        kubeadm init
+        --v=5
+        --ignore-preflight-errors=all
+        --control-plane-endpoint "{{ master_init_ip }}:6443"
+        --kubernetes-version=1.29.0
+        --pod-network-cidr=10.244.0.0/16
+        --cri-socket=unix:///run/containerd/containerd.sock
+      register: kubeadm_init
+      when: "'master-init' in group_names"
+      failed_when: false
+
+    - name: Debug kubeadm_init
+      debug:
+       var: kubeadm_init
+
+    - name: Retrieve the join command
+      shell: kubeadm token create --print-join-command
+      register: join_command
+      when: "'master-init' in group_names"
+
+    - name: Save the join command to a script file
+      when: "'master-init' in group_names"
+      copy:
+        content: |
+          #!/bin/bash
+          {{ join_command.stdout }} --discovery-token-unsafe-skip-ca-verification
+        dest: /tmp/kubeadm_join_command.sh
+        mode: '0755'
+
+    - name: Create PKI directory on non-primary master nodes
+      ansible.builtin.file:
+        path: /etc/kubernetes/pki
+        state: directory
+        mode: '0755'
+      when: "'master-init' not in group_names"
+
+    - name: Fetch CA certificates from primary master node
+      fetch:
+        src: "/etc/kubernetes/pki/{{ item }}"
+        dest: "/etc/openmsa/files/pki/"
+        flat: yes
+      with_items:
+        - ca.crt
+        - ca.key
+        - front-proxy-ca.crt
+        - front-proxy-ca.key
+        - sa.pub
+        - sa.key
+      when: "'master-init' in group_names"
+
+    - name: Create ETCD PKI directory on non-primary master nodes
+      ansible.builtin.file:
+        path: /etc/kubernetes/pki/etcd
+        state: directory
+        mode: '0755'
+      when: "'master-init' not in group_names"
+
+    - name: Fetch ETCD CA certificates from primary master node
+      fetch:
+        src: "/etc/kubernetes/pki/etcd/{{ item }}"
+        dest:  "/etc/openmsa/files/etcd/"
+        flat: yes
+      with_items:
+        - ca.crt
+        - ca.key
+      when: "'master-init' in group_names"
+
+    - name: Clean up join command script
+      ansible.builtin.command: sed -i 's/\\//g' /tmp/kubeadm_join_command.sh
+      args:
+        executable: /bin/bash
+      when: "'master-init' in group_names"
+
+    - name: Fetch join command from primary master node
+      fetch:
+        src: "/tmp/kubeadm_join_command.sh"
+        dest: "/etc/openmsa/files/"
+        flat: yes
+      when: "'master-init' in group_names"
+
+- name: Distribute Join Command to Non-Primary Nodes
+  hosts: all
+  become: yes
+  tags:
+    - node-join
+    - cluster-configuration
+  tasks:
+    - name: Copy join command to non-primary nodes
+      copy:
+        src: "/etc/openmsa/files/{{ item }}"
+        dest: "/tmp/{{ item }}"
+      with_items:
+        - kubeadm_join_command.sh
+      when: "'master-init' not in group_names"
+
+- name: Fetch kubeconfig from master-init
   hosts: master-init
-  remote_user: "{{ USER }}"
-  become: True
-  gather_facts: True
-  tasks:
-    - include_role:
-       name: ./role/master-init 
+  become: yes
   tags:
-    - init-master
+    - k8s-kubeconfig-fetch
+  tasks:
+    - name: Fetch kubeconfig file to local
+      fetch:
+        src: /etc/kubernetes/admin.conf
+        dest: /tmp/kubeconfig/admin.conf
+        flat: yes
 
-- name: configure control node
-  hosts: control
-  remote_user: "{{ USER }}"
-  become: True
-  gather_facts: True
-  tasks:
-    - include_role:
-        name:  ./role/control-kube
+- name: Distribute kubeconfig to control and masters
+  hosts: control, masters
+  become: yes
   tags:
-    - configure-control-node
+    - k8s-kubeconfig-distribution
+  tasks:
+    - name: Create .kube directory for root user
+      file:
+        path: /root/.kube
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
 
-- name: join master
-  hosts: masters-connect
-  remote_user: "{{ USER }}"
-  become: True
-  gather_facts: True
-  tasks:
-    - include_role:
-        name: ./role/masters-join
-      when: "'masters-connect' in groups" 
+    - name: Copy kubeconfig to root user's directory
+      copy:
+        src: "/tmp/kubeconfig/admin.conf"
+        dest: /root/.kube/config
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: Add KUBECONFIG environment variable to root's shell profile
+      lineinfile:
+        path: /root/.bashrc
+        line: 'export KUBECONFIG=/root/.kube/config'
+        state: present
+
+    - name: Apply KUBECONFIG environment variable immediately for root
+      shell: |
+        export KUBECONFIG=/root/.kube/config
+      args:
+        executable: /bin/bash
+
+- name: Distribute Cluster Certificates to Master Nodes
+  hosts: masters
+  become: yes
   tags:
-    - join-master
-  
-- name: join worker
+    - certificate-distribution
+    - security-config
+  tasks:
+    - name: Copy cluster certificates to non-primary master nodes
+      copy:
+        src: "/etc/openmsa/files/pki/{{ item }}"
+        dest: "/etc/kubernetes/pki/{{ item }}"
+      with_items:
+        - ca.crt
+        - ca.key
+        - front-proxy-ca.crt
+        - front-proxy-ca.key
+        - sa.pub
+        - sa.key
+      when: "'master-init'not in group_names"
+
+    - name: Copy ETCD certificates to non-primary master nodes
+      copy:
+        src: "/etc/openmsa/files/etcd/{{ item }}"
+        dest:  "/etc/kubernetes/pki/etcd/{{ item }}"
+      with_items:
+        - ca.crt
+        - ca.key
+      when: "'master-init'not in group_names"
+
+    - name: Modify join command for additional master nodes
+      ansible.builtin.shell: |
+        sed -i 's/$/ --control-plane/' /tmp/kubeadm_join_command.sh
+      args:
+        executable: /bin/bash
+      when: "'master-init'not in group_names"
+
+    - name: Join additional master nodes to the Kubernetes cluster
+      ansible.builtin.shell: |
+        bash /tmp/kubeadm_join_command.sh
+      args:
+        executable: /bin/bash
+      when: "'master-init'not in group_names"
+
+
+- name: Join Worker Nodes to Kubernetes Cluster
   hosts: workers
-  remote_user: "{{ USER }}"
-  become: True
-  gather_facts: True
-  tasks:
-    - include_role:
-        name: ./role/workers 
+  become: yes
   tags:
-    - join-worker
+    - worker-join
+    - cluster-configuration
+  tasks:
+    - name: Join worker nodes to the Kubernetes cluster
+      ansible.builtin.shell: |
+        bash /tmp/kubeadm_join_command.sh
+      args:
+        executable: /bin/bash
 
-- name: label workers
+- name: Configure Control Node and Install Network Plugin
   hosts: control
-  remote_user: "{{ USER }}"
-  become: True
-  gather_facts: True
-  tasks:
-    - include_role:
-        name: ./role/labels 
+  become: yes
   tags:
-    - label-workers
+    - network-plugin
+    - final-setup
+  tasks:
+    - name: Link kubectl binary to system path
+      ansible.builtin.command: ln -sf /usr/bin/kubectl /usr/local/bin/kubectl
+      args:
+        executable: /bin/bash
+
+    - name: Check cluster node status before CNI installation
+      ansible.builtin.shell: |
+        export KUBECONFIG=/root/.kube/config
+        kubectl get nodes
+      register: node_status
+      changed_when: false
+
+    - name: Display node status
+      ansible.builtin.debug:
+        var: node_status.stdout_lines
+
+    - name: Download Calico manifest
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/projectcalico/calico/v3.26.4/manifests/calico.yaml
+        dest: /tmp/calico.yaml
+        mode: '0644'
+
+    - name: Install Calico network plugin
+      ansible.builtin.shell: |
+        export KUBECONFIG=/root/.kube/config
+        kubectl apply -f /tmp/calico.yaml
+      register: calico_install
+      changed_when: calico_install.rc == 0
+
+    - name: Wait for Calico pods to be ready
+      ansible.builtin.shell: |
+        export KUBECONFIG=/root/.kube/config
+        kubectl wait --namespace=kube-system --for=condition=Ready pods --selector=k8s-app=calico-node --timeout=180s
+      register: calico_pods_status
+      changed_when: false
+
+    - name: Check node status after CNI installation
+      ansible.builtin.shell: |
+        export KUBECONFIG=/root/.kube/config
+        kubectl get nodes
+      register: node_status_after
+      changed_when: false
+
+    - name: Display node status after CNI installation
+      ansible.builtin.debug:
+        var: node_status_after.stdout_lines
+
+- name: Install nginx-ingress Controller 
+  hosts: control
+  become: yes
+  tags:
+    - nginx-ingress-controller
+  tasks:
+    - name: Add Helm repository
+      ansible.builtin.shell: |
+        helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+        helm repo update
+      args:
+        executable: /bin/bash
+
+    - name: Install NGINX Ingress Controller
+      ansible.builtin.shell: |
+        helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+          --namespace ingress-nginx \
+          --create-namespace \
+          --set controller.service.type=NodePort \
+          --set controller.service.nodePorts.http=30080 \
+          --set controller.service.nodePorts.https=30443 \
+          --set controller.containerPort.http=80 \
+          --set controller.containerPort.https=443 \
+          --set controller.kind=DaemonSet \
+          --set controller.ingressClass=nginx \
+          --set controller.ingressClassResource.default=true
+      args:
+        executable: /bin/bash
+
+    - name: Wait for NGINX Ingress controller pods to be ready
+      ansible.builtin.shell: |
+        kubectl wait --namespace ingress-nginx \
+          --for=condition=ready pod \
+          --selector=app.kubernetes.io/component=controller \
+          --timeout=600s
+      args:
+        executable: /bin/bash
+
+    - name: Verify NGINX Ingress Controller installation
+      ansible.builtin.command: |
+        kubectl get pods -n ingress-nginx
+      register: ingress_pods
+      changed_when: false
+
+    - name: Debug ingress pods
+      ansible.builtin.debug:
+        var: ingress_pods
+
+    - name: Get Ingress Controller Service Details
+      ansible.builtin.command: |
+        kubectl get service -n ingress-nginx
+      register: ingress_service
+      changed_when: false
+
+    - name: Debug ingress service
+      ansible.builtin.debug:
+        var: ingress_service
+
+- name: Label Nodes
+  hosts: control
+  become: yes
+  tags:
+    - label-nodes
+  tasks:
+     ## Labels
+     - name: 7.1. Add labels to nodes
+       command: >
+         kubectl label node {{ item.name }} {{ item.labels | join(' ') }} --overwrite
+       loop: "{{ ALL_Servers }}"
+       when:
+         - item.labels | default([]) | length > 0
+         - "'control' not in item.roles"
+
+     ## Taints
+     - name: 7.2. Set taints to master nodes
+       command: >
+         kubectl taint node {{ item.name }} node-role.kubernetes.io/control-plane=true:NoSchedule --overwrite
+       with_items: "{{ ALL_Servers }}"
+       when:
+         "'control-plane' in item.roles"
 
 - name: Deploy RancherUI
   hosts: control
@@ -106,7 +707,7 @@
   become: True
   gather_facts: True
   tasks:
-    -  include_role: 
+    -  include_role:
           name: "./role/catalogs/Observability/Prometheus/{{ PROMETHEUS_VERSION }}"
        when: DEPLOY_PROMETHEUS | default(False)
   tags:
@@ -142,7 +743,7 @@
   become: True
   gather_facts: True
   tasks:
-    -  include_role: 
+    -  include_role:
          name: "./role/catalogs/Storage/Minio/{{ MINIO_VERSION }}"
        when: DEPLOY_MINIO | default(False)
   tags:
@@ -154,7 +755,7 @@
   become: True
   gather_facts: True
   tasks:
-    -  include_role: 
+    -  include_role:
          name: "./role/catalogs/Backup/Velero/{{ VELERO_VERSION }}"
        when: DEPLOY_VELERO | default(False)
   tags:
@@ -166,7 +767,7 @@
   become: True
   gather_facts: True
   tasks:
-    -  include_role: 
+    -  include_role:
          name: "./role/catalogs/CICD/ArgoCD/{{ ARGOCD_VERSION }}"
        when: DEPLOY_ARGOCD | default(False)
   tags:
@@ -192,7 +793,7 @@
   tasks:
     - include_role:
         name: "./role/catalogs/SampleCode/Java"
-      when:  DEPLOY_JAVACODE | default(false) 
+      when:  DEPLOY_JAVACODE | default(false)
   tags:
     - java
 
@@ -202,7 +803,7 @@
   become: True
   gather_facts: True
   tasks:
-    -  include_role: 
+    -  include_role:
          name: "./role/catalogs/SampleCode/Spring_Cloud_GW"
        when: DEPLOY_APIGATEWAY | default(False)
   tags:
@@ -238,7 +839,7 @@
   become: True
   gather_facts: True
   tasks:
-    - include_role: 
+    - include_role:
         name: "./role/catalogs/CICD/Gitlab/{{GITLAB_VERSION}}"
       when: DEPLOY_GITLAB | default(False)
   tags:
@@ -276,7 +877,7 @@
   tasks:
     - include_role:
         name: "./role/catalogs/DB/MySQL/{{ MYSQL_VERSION }}"
-      when:  DEPLOY_MYSQL | default(false) 
+      when:  DEPLOY_MYSQL | default(false)
   tags:
     - mysql
 
@@ -340,31 +941,6 @@
   tags:
     - catalog_istio
 
-#- name: Deploy KUBECOST
-#  hosts: control
-#  remote_user: "{{ USER }}"
-#  become: True
-#  gather_facts: True
-#  tasks:
-#    - include_role:
-#        name: "./role/catalogs/Observability/Kubecost/{{ KUBECOST_VERSION }}"
-#      when: DEPLOY_KUBECOST | default(False)
-#  tags:
-#    - catalog_istio
-#
- #### template #####     
- #- name: Deploy << catalog_name 입력 >>
- #  hosts: control
- #  remote_user: "{{ USER }}"
- #  become: True
- #  gather_facts: True
- #  tasks:
- #    - include_role:
- #        name: "./role/catalogs/<role_path 경로 입력>/{{ <CATALOGENAME 입력>_VERSION }}"
- #      when: DEPLOY_<<catalog_name 입력 >> | default(False)
- #  tags:
- #    - catalog_<<catalog_name 입력>>
-
 - name: Deploy VirtualServices to Kubernetes
   hosts: control
   become: True
@@ -373,5 +949,5 @@
       include_tasks: "./virtualservices/virtualservices.yaml"
       when: DEPLOY_ISTIO | default(False)
   tags:
-    - virtualservices 
+    - virtualservices
 

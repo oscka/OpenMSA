@@ -6,7 +6,7 @@
   ignore_errors: True
   tasks:
   - name: Uninstall RKE2 worker nodes
-    shell: /usr/local/bin/rke2-uninstall.sh
+    shell: /usr/bin/rke2-uninstall.sh
 
 - name: Uninstall rke2-cluster-masters-connect
   hosts: masters-connect
@@ -16,7 +16,7 @@
   ignore_errors: True
   tasks:
   - name: Uninstall RKE2 master nodes
-    shell: /usr/local/bin/rke2-uninstall.sh
+    shell: /usr/bin/rke2-uninstall.sh
 
 - name: Uninstall rke2-cluster-masters-init
   hosts: master-init
@@ -26,7 +26,7 @@
   ignore_errors: True
   tasks:
   - name: Uninstall RKE2 master nodes
-    shell: /usr/local/bin/rke2-uninstall.sh
+    shell: /usr/bin/rke2-uninstall.sh
 
       #
       #- name: Completely remove RKE2

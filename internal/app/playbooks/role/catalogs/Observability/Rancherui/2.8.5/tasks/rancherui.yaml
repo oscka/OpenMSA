@@ -2,7 +2,6 @@
   ansible.builtin.shell:
     cmd: helm repo add rancher-stable https://releases.rancher.com/server-charts/stable
 
-
 - name: 8.1.1 helm repo Update
   ansible.builtin.shell:
     cmd: helm repo update
@@ -16,6 +15,7 @@
       --set tls=external \
       --set ingress.enabled=true \
       --set hostname=rancher.{{DOMAIN_NAME}}
+  ignore_errors: yes
   tags:
     - catalog_rancherui
 

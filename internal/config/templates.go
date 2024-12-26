@@ -6,7 +6,6 @@ const (
 {{ .IP }} {{ .Name }}
 {{- end }}
 `
-
         AnsibleHostsTemplate = `all:
   children:
     control:
@@ -22,15 +21,12 @@ const (
           children:
             master-init:
               hosts:
-{{- range .ALLServers }}
-{{- if and (eq (index .Roles 0) "control-plane") (eq .Name "rke2-master-node01") }}
-                {{ .Name }}:
-{{- end }}
-{{- end }}
+{{- $firstMaster := (index (filterMasterServers .ALLServers) 0) }}
+                {{ $firstMaster.Name }}:
             masters-connect:
               hosts:
 {{- range .ALLServers }}
-{{- if and (eq (index .Roles 0) "control-plane") (ne .Name "rke2-master-node01") }}
+{{- if and (eq (index .Roles 0) "control-plane") (ne .Name $firstMaster.Name) }}
                 {{ .Name }}:
 {{- end }}
 {{- end }}

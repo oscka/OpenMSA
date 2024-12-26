@@ -16,10 +16,6 @@
   file:
     path: /tmp/docker
     state: directory
-- name: 1.5. Ensure /etc/docker directory exists
-  file:
-    path: /etc/docker
-    state: directory
 
 # Untar docker file
 - name: 1.6. Untar docker file

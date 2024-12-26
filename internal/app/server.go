@@ -31,8 +31,22 @@ type ServerConfig struct {
     ALLServers []Server `yaml:"ALL_Servers"`
 }
 
+
 // CreateHostsFiles generates both /etc/hosts and /etc/ansible/hosts files
 func (app *App) CreateHostsFiles() error {
+    // 사용자 정의 함수 맵 생성
+    funcMap := template.FuncMap{
+        "filterMasterServers": func(servers []Server) []Server {
+            var masterServers []Server
+            for _, server := range servers {
+                if server.Roles[0] == "control-plane" {
+                    masterServers = append(masterServers, server)
+                }
+            }
+            return masterServers
+        },
+    }
+
     // Create /etc/hosts file
     hostsTempl, err := template.New("hosts").Parse(config.HostsTemplate)
     if err != nil {
@@ -58,7 +72,8 @@ func (app *App) CreateHostsFiles() error {
         return fmt.Errorf("error creating ansible directory: %w", err)
     }
 
-    ansibleHostsTempl, err := template.New("ansible_hosts").Parse(config.AnsibleHostsTemplate)
+    // 사용자 정의 함수 맵을 템플릿에 추가
+    ansibleHostsTempl, err := template.New("ansible_hosts").Funcs(funcMap).Parse(config.AnsibleHostsTemplate)
     if err != nil {
         return fmt.Errorf("error parsing ansible hosts template: %w", err)
     }
@@ -69,7 +84,7 @@ func (app *App) CreateHostsFiles() error {
     }
     defer func() {
         if cerr := ansibleHostsFile.Close(); cerr != nil && err == nil {
-            err = fmt.Errorf("error closing ansible hosts file: %w", cerr)
+            err = fmt.Errorf("error closing ansible hosts file: %w", err)
         }
     }()
 
@@ -79,7 +94,6 @@ func (app *App) CreateHostsFiles() error {
 
     return nil
 }
-
 func (app *App) SetupServerConfig() error {
     // 1. 먼저 /etc/openmsa의 기존 서버 설정 파일 확인
     existingConfigPath := "/etc/openmsa/group_vars/all/servers.yaml"
@@ -314,6 +328,11 @@ func (app *App) editExistingServer() {
     ui.Clear()
     fmt.Printf("Editing server: %s\n\n", server.Name)
 
+    fmt.Printf("Current name: %s\nEnter new name (or press Enter to keep current): ", server.Name)
+    if name, _ := reader.ReadString('\n'); strings.TrimSpace(name) != "" {
+        server.Name = strings.TrimSpace(name)
+    }
+
     fmt.Printf("Current IP: %s\nEnter new IP (or press Enter to keep current): ", server.IP)
     if ip, _ := reader.ReadString('\n'); strings.TrimSpace(ip) != "" {
         server.IP = strings.TrimSpace(ip)
@@ -340,7 +359,6 @@ func (app *App) editExistingServer() {
     fmt.Print("\nPress Enter to continue...")
     reader.ReadString('\n')
 }
-
 func (app *App) deleteServer() {
     ui.Clear()
     ui.PrintLogo()

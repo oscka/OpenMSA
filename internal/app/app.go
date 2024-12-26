@@ -313,7 +313,7 @@ func (app *App) SelectAction() {
                                 continue
                         }
                         app.RunPlaybook(false)
-                        ui.Yellow.Println("Complete installation finished. Exiting CN studio.")
+                        ui.Yellow.Println("Complete installation finished. Exiting OpenMSA.")
                         os.Exit(0)
                 case 2:
                         if app.InstallConfig.InstallType == "" {
@@ -334,7 +334,7 @@ func (app *App) SelectAction() {
                 case 6:
                         app.ConfirmUninstall()
                 case 7:
-                        ui.Yellow.Println("Exiting CN studio.")
+                        ui.Yellow.Println("Exiting OpenMSA.")
                         os.Exit(0)
                 }
         }

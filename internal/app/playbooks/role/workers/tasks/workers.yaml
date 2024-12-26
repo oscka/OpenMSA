@@ -1,5 +1,5 @@
 - name: 6.1. Install and set RKE2 with curl
-  shell: curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE="agent" sudo sh -
+  shell: curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE="agent" sh -
  
 
 ## RKE2 configuration file

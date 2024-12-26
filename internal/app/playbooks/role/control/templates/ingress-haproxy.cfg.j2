@@ -1,0 +1,72 @@
+global
+    daemon
+    maxconn 256
+
+defaults
+    mode http
+    timeout connect 5000ms
+    timeout client 50000ms
+    timeout server 50000ms
+
+frontend http-in-80
+    mode tcp
+    bind *:80
+    default_backend k8s-masters-80
+
+frontend https-in-443
+    mode tcp
+    bind *:443
+    default_backend k8s-masters-443
+
+frontend https-in-6443
+    mode tcp
+    bind *:6443
+    default_backend k8s-masters-6443
+
+frontend https-in-k8s-join-9345
+    mode tcp
+    bind *:9345
+    default_backend rke2-join-masters-9345
+
+backend k8s-masters-80
+    mode tcp
+    balance roundrobin
+    option tcp-check
+    option tcplog
+{% for node in k8s_master_nodes %}
+    server {{ node.name }} {{ node.ip }}:80 check
+{% endfor %}
+
+backend k8s-masters-443
+    mode tcp
+    balance roundrobin
+    option tcp-check
+    option tcplog
+{% for node in k8s_master_nodes %}
+    server {{ node.name }} {{ node.ip }}:443 check
+{% endfor %}
+
+backend k8s-masters-6443
+    mode tcp
+    balance roundrobin
+    option tcp-check
+    option tcplog
+{% for node in k8s_master_nodes %}
+    server {{ node.name }} {{ node.ip }}:6443 check
+{% endfor %}
+
+backend rke2-join-masters-9345
+    mode tcp
+    balance roundrobin
+    option tcp-check
+    option tcplog
+{% for node in k8s_master_nodes %}
+    server {{ node.name }} {{ node.ip }}:9345 check
+{% endfor %}
+
+frontend stats
+    bind *:8404
+    stats enable
+    stats uri /stats
+    stats refresh 10s
+    stats admin if LOCALHOST
