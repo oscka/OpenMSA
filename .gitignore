@@ -1,0 +1,5 @@
+internal/app/playbooks/files/packages/docker/haproxy.tar
+internal/app/playbooks/role/catalogs/CICD/ArgoCD/7.0.0/files/argocd
+internal/app/playbooks/files/packages/docker/docker-25.0.1.tgz
+internal/app/playbooks/role/catalogs/Storage/Minio/2024.07.04/files/minio
+internal/app/playbooks/files/packages/docker/docker/dockerd
